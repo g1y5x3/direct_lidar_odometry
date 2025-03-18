@@ -18,7 +18,11 @@
 dlo::MapNode::MapNode() : Node("dlo_map_node") {
 
   this->getParams();
-  
+
+  if (this->publish_full_map_) {
+    this->publish_timer = this->create_wall_timer(std::chrono::milliseconds((int)(1000.0 / this->publish_freq_)), std::bind(&dlo::MapNode::publishTimerCB, this));
+  }
+ 
   this->keyframe_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>("keyframes", 10, std::bind(&dlo::MapNode::keyframeCB, this, std::placeholders::_1));
   this->map_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("map", 100);
 
@@ -27,9 +31,8 @@ dlo::MapNode::MapNode() : Node("dlo_map_node") {
   // initialize map
   this->dlo_map = std::make_shared<pcl::PointCloud<PointType>>();
 
-  if (this->publish_full_map_) {
-    this->publish_timer = this->create_wall_timer(std::chrono::milliseconds((int)(1000.0 / this->publish_freq_)), std::bind(&dlo::MapNode::publishTimerCB, this));
-  }
+  RCLCPP_INFO(this->get_logger(), "DLO Map Node Initialized");
+
 }
 
 

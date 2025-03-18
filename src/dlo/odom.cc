@@ -171,7 +171,7 @@ dlo::OdomNode::OdomNode() : Node("dlo_odom_node") {
   }
   fclose(file);
 
-  // ROS_INFO("DLO Odom Node Initialized");
+  RCLCPP_INFO(this->get_logger(), "DLO Odom Node Initialized");
 
 }
 
