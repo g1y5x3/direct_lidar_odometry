@@ -1,5 +1,17 @@
 # Direct LiDAR Odometry: <br> Fast Localization with Dense Point Clouds
 
+## Note
+
+This is a port after 
+
+[Cardinal-Space-Mining](https://github.com/Cardinal-Space-Mining/direct_lidar_odometry) initial effort to move it to ROS 2
+
+and
+
+[tu-darmstadt-ros-pkg](https://github.com/tu-darmstadt-ros-pkg/direct_lidar_odometry) do have map pcd properly published
+
+Tested on ROS 2 Humble with Ubuntu 22.04
+
 #### [[IEEE RA-L](https://ieeexplore.ieee.org/document/9681177)] [[ArXiv](https://arxiv.org/abs/2110.00605)] [[Video](https://www.youtube.com/watch?v=APot6QP_wvg)] [[Code](https://github.com/vectr-ucla/direct_lidar_odometry)]
 
 DLO is a lightweight and computationally-efficient frontend LiDAR odometry solution with consistent and accurate localization. It features several algorithmic innovations that increase speed, accuracy, and robustness of pose estimation in perceptually-challenging environments and has been extensively tested on aerial and legged robots.
@@ -25,8 +37,8 @@ DLO requires an input point cloud of type `sensor_msgs::PointCloud2` with an opt
 ### Dependencies
 Our system has been tested extensively on both Ubuntu 18.04 Bionic with ROS Melodic and Ubuntu 20.04 Focal with ROS Noetic, although other versions may work. The following configuration with required dependencies has been verified to be compatible:
 
-- Ubuntu 18.04 or 20.04
-- ROS Melodic or Noetic (`roscpp`, `std_msgs`, `sensor_msgs`, `geometry_msgs`, `pcl_ros`)
+- Ubuntu 22.04
+- ROS 2 Humble (`roscpp`, `std_msgs`, `sensor_msgs`, `geometry_msgs`, `pcl_ros`)
 - C++ 14
 - CMake >= `3.16.3`
 - OpenMP >= `4.5`
@@ -42,15 +54,15 @@ sudo apt install libomp-dev libpcl-dev libeigen3-dev
 Create a catkin workspace, clone the `direct_lidar_odometry` repository into the `src` folder, and compile via the [`catkin_tools`](https://catkin-tools.readthedocs.io/en/latest/) package (or [`catkin_make`](http://wiki.ros.org/catkin/commands/catkin_make) if preferred):
 ```sh
 mkdir ws && cd ws && mkdir src && catkin init && cd src
-git clone https://github.com/vectr-ucla/direct_lidar_odometry.git
-catkin build
+git clone https://github.com/g1y5x3/direct_lidar_odometry
+colcon build
 ```
 
 ### Execution
 After sourcing the workspace, launch the DLO odometry and mapping ROS nodes via:
 
 ```sh
-roslaunch direct_lidar_odometry dlo.launch \
+ros2 launch direct_lidar_odometry dlo.launch \
   pointcloud_topic:=/robot/velodyne_points \
   imu_topic:=/robot/vn100/imu
 ```
@@ -68,15 +80,16 @@ If successful, RViz will open and you will see similar terminal outputs to the f
 To save DLO's generated map into `.pcd` format, call the following service:
 
 ```sh
-rosservice call /robot/dlo_map/save_pcd LEAF_SIZE SAVE_PATH
+ros2 service call /dlo_map/save_pcd direct_lidar_odometry/srv/SavePCD "{'leaf_size': 0.25, 'save_path': 'map'}"
 ```
 To save the trajectory in KITTI format, call the following service:
 
-```sh
+__Not supported yet!__
+<!-- ```sh
 rosservice call /robot/dlo_odom/save_traj SAVE_PATH
-```
+``` -->
 
-### Test Data
+### Test Data (Only in ROS 1 but you can convert into ROS2 bag)
 For your convenience, we provide example test data [here](https://ucla.box.com/shared/static/ziojd3auzp0zzcgwb1ucau9anh69xwv9.bag) (9 minutes, ~4.2GB). To run, first launch DLO (with default point cloud and IMU topics) via:
 
 ```sh
