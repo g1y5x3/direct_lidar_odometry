@@ -16,6 +16,9 @@
 // Nano GCIP
 #include <nano_gicp/nano_gicp.hpp>
 
+#include <mutex>
+#include <optional>
+
 typedef pcl::PointXYZI PointType;
 
 class dlo::LocalizationNode : public rclcpp::Node {

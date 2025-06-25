@@ -50,5 +50,9 @@ void dlo::LocalizationNode::loadGlobalMap() {
   map_msg.header.stamp = this->now();
   this->map_pub_->publish(map_msg);
   RCLCPP_INFO(this->get_logger(), "Global map published");
+}
 
+void dlo::LocalizationNode::OdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+  std::lock_guard<std::mutex> lock(this->odom_mutex_);
+  this->latest_odom_pose_ = msg->pose.pose;
 }
