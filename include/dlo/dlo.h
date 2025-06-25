@@ -60,5 +60,6 @@ namespace dlo {
 
   class OdomNode;
   class MapNode;
+  class LocalizationNode;
 
 }

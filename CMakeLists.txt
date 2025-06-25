@@ -44,7 +44,6 @@ rosidl_get_typesupport_target(cpp_typesupport_target
 
 
 include_directories(${PCL_INCLUDE_DIRS})
-# add_definitions(${PCL_DEFINITIONS})
 include_directories(${EIGEN3_INCLUDE_DIR})
 
 include_directories(include)
@@ -75,6 +74,11 @@ add_executable (dlo_map_node src/dlo/map_node.cc src/dlo/map.cc)
 target_link_libraries(dlo_map_node ${PCL_LIBRARIES}  ${cpp_typesupport_target})
 ament_target_dependencies(dlo_map_node "tf2_ros" "pcl_ros" "pcl_conversions" "rclcpp")
 
+# Localization Node
+add_executable(dlo_localization_node src/dlo/localization_node.cc src/dlo/localization.cc)
+target_link_libraries(dlo_localization_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
+ament_target_dependencies(dlo_localization_node "tf2_ros" "pcl_ros" "nav_msgs" "pcl_conversions" "rclcpp" "sensor_msgs" "geometry_msgs")
+
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
 ament_export_dependencies(rclcpp std_msgs sensor_msgs geometry_msgs pcl_ros)
@@ -82,7 +86,7 @@ ament_package()
 
 
 # Binaries
-install( TARGETS dlo_odom_node dlo_map_node
+install( TARGETS dlo_odom_node dlo_map_node dlo_localization_node
          DESTINATION lib/${PROJECT_NAME} 
 )
 install( DIRECTORY cfg launch
@@ -111,5 +115,7 @@ endif()
 target_compile_options(dlo_odom_node PRIVATE ${OpenMP_FLAGS})
 
 target_compile_options(dlo_map_node PRIVATE ${OpenMP_FLAGS})
+
+target_compile_options(dlo_localization_node PRIVATE ${OpenMP_FLAGS})
 
 
