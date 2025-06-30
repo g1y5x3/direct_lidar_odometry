@@ -4,7 +4,15 @@
 dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   
   this->getParams();
+
   this->loadGlobalMap();
+
+  // initialize point cloud filters
+  this->crop_.setNegative(true);
+  this->crop_.setMin(Eigen::Vector4f(-this->crop_size_, -this->crop_size_, -this->crop_size_, 1.0));
+  this->crop_.setMax(Eigen::Vector4f(this->crop_size_, this->crop_size_, this->crop_size_, 1.0));
+
+  this->vf_scan_.setLeafSize(this->vf_scan_res_, this->vf_scan_res_, this->vf_scan_res_);
 
 }
 
@@ -16,11 +24,13 @@ void dlo::LocalizationNode::start() {
 }
 
 void dlo::LocalizationNode::getParams() {
+  // REPLACE WITH dlo::declare_param LATER
   this->declare_parameter<std::string>("map_path", "global_map.pcd");
   this->declare_parameter<bool>("crop_use", true);
   this->declare_parameter<double>("crop_size", 1.0);
   this->declare_parameter<bool>("vf_scan_use", true);
   this->declare_parameter<double>("vf_scan_res", 0.05);
+  this->declare_parameter<int>("gicp_min_num_points", 100);
 
   this->get_parameter("map_path", this->map_path_);
   this->get_parameter("crop_use", this->crop_use_);
@@ -50,9 +60,55 @@ void dlo::LocalizationNode::loadGlobalMap() {
   map_msg.header.stamp = this->now();
   this->map_pub_->publish(map_msg);
   RCLCPP_INFO(this->get_logger(), "Global map published");
+
+  // Initialize map_to_odom transform
+  this->T_map_odom_ = Eigen::Matrix4f::Identity();
 }
 
 void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(this->odom_mutex_);
   this->latest_odom_pose_ = msg->pose.pose;
+}
+
+// Taken from dlo::OdomNode
+void dlo::LocalizationNode::preprocessPoints() {
+  // Remove NaNs
+  std::vector<int> idx;
+  this->current_scan_->is_dense = false;
+  pcl::removeNaNFromPointCloud(*this->current_scan_, *this->current_scan_, idx);
+
+  // Crop Box Filter
+  if (this->crop_use_) {
+    this->crop_.setInputCloud(this->current_scan_);
+    this->crop_.filter(*this->current_scan_);
+  }
+
+  // Voxel Grid Filter
+  if (this->vf_scan_use_) {
+    this->vf_scan_.setInputCloud(this->current_scan_);
+    this->vf_scan_.filter(*this->current_scan_);
+  }
+}
+
+void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
+  // ADD INITIALIZATION CHECK
+
+  // update the current odom pose
+  std::unique_lock<std::mutex> lock(this->odom_mutex_);
+  if (!this->latest_odom_pose_) {
+    RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
+    return;
+  }
+  geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
+  lock.unlock();
+
+  // filter the incoming point cloud if necessary
+  this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();
+  pcl::fromROSMsg(*pc_msg, *this->current_scan_);
+  if (this->current_scan_->points.size() < this->gicp_min_num_points_) {
+    RCLCPP_WARN(this->get_logger(), "Point cloud has too few points: %zu", this->current_scan_->points.size());
+    return;
+  }
+
+
 }

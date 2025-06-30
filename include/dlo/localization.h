@@ -37,6 +37,7 @@ private:
 
   void getParams();
   void loadGlobalMap();
+  void preprocessPoints();
   void publishTransform(const rclcpp::Time& stamp);
 
   // ROS Members
@@ -48,7 +49,9 @@ private:
 
   // GICP and PCL Members
   nano_gicp::NanoGICP<PointType, PointType> gicp_;
+  pcl::PointCloud<PointType>::Ptr current_scan_;
   pcl::PointCloud<PointType>::Ptr global_map_;
+  pcl::CropBox<PointType> crop_;
   pcl::VoxelGrid<PointType> vf_scan_;
 
   // State and Threading Members
@@ -63,4 +66,5 @@ private:
   double crop_size_;
   bool vf_scan_use_;
   double vf_scan_res_;
+  int gicp_min_num_points_;
 };
