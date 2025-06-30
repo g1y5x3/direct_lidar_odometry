@@ -36,6 +36,7 @@ dlo::OdomNode::OdomNode() : Node("dlo_odom_node") {
   this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("imu", 1, std::bind(&dlo::OdomNode::imuCB, this, std::placeholders::_1));
 
   this->odom_pub = this->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
+  this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
   this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("pose", 1);
   this->kf_pub = this->create_publisher<nav_msgs::msg::Odometry>("kfs", 1);
   this->keyframe_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("keyframe", 1);
@@ -638,6 +639,13 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
 
   // Preprocess points
   this->preprocessPoints();
+
+  // Publish the filtered point cloud
+  sensor_msgs::msg::PointCloud2 filtered_scan;
+  pcl::toROSMsg(*this->current_scan, filtered_scan);
+  filtered_scan.header.stamp = this->scan_stamp;
+  filtered_scan.header.frame_id = pc->header.frame_id;
+  this->filtered_scan_pub->publish(filtered_scan);
 
   // Compute Metrics
   this->metrics_thread = std::thread( &dlo::OdomNode::computeMetrics, this );
