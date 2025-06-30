@@ -7,12 +7,7 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
 
   this->loadGlobalMap();
 
-  // initialize point cloud filters
-  this->crop_.setNegative(true);
-  this->crop_.setMin(Eigen::Vector4f(-this->crop_size_, -this->crop_size_, -this->crop_size_, 1.0));
-  this->crop_.setMax(Eigen::Vector4f(this->crop_size_, this->crop_size_, this->crop_size_, 1.0));
-
-  this->vf_scan_.setLeafSize(this->vf_scan_res_, this->vf_scan_res_, this->vf_scan_res_);
+  // CREATE A SUBSCRIBER FOR THE FILTERED SCAN
 
 }
 
@@ -70,47 +65,23 @@ void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPt
   this->latest_odom_pose_ = msg->pose.pose;
 }
 
-// Taken from dlo::OdomNode
-void dlo::LocalizationNode::preprocessPoints() {
-  // Remove NaNs
-  std::vector<int> idx;
-  this->current_scan_->is_dense = false;
-  pcl::removeNaNFromPointCloud(*this->current_scan_, *this->current_scan_, idx);
 
-  // Crop Box Filter
-  if (this->crop_use_) {
-    this->crop_.setInputCloud(this->current_scan_);
-    this->crop_.filter(*this->current_scan_);
-  }
+void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
+  // ADD INITIALIZATION CHECK
 
-  // Voxel Grid Filter
-  if (this->vf_scan_use_) {
-    this->vf_scan_.setInputCloud(this->current_scan_);
-    this->vf_scan_.filter(*this->current_scan_);
+  // update the current odom pose
+  std::unique_lock<std::mutex> lock(this->odom_mutex_);
+  if (!this->latest_odom_pose_) {
+    RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
+    return;
   }
+  geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
+  lock.unlock();
+
+  // filter the incoming point cloud if necessary
+  this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();
+  pcl::fromROSMsg(*pc_msg, *this->current_scan_);
+
+  // create the initialization guess based on the latest odom pose
+
 }
-
-// void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
-//   // ADD INITIALIZATION CHECK
-
-//   // update the current odom pose
-//   std::unique_lock<std::mutex> lock(this->odom_mutex_);
-//   if (!this->latest_odom_pose_) {
-//     RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
-//     return;
-//   }
-//   geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
-//   lock.unlock();
-
-//   // filter the incoming point cloud if necessary
-//   this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();
-//   pcl::fromROSMsg(*pc_msg, *this->current_scan_);
-//   if (this->current_scan_->points.size() < this->gicp_min_num_points_) {
-//     RCLCPP_WARN(this->get_logger(), "Point cloud has too few points: %zu", this->current_scan_->points.size());
-//     return;
-//   }
-
-//   // Preprocess raw point cloud
-//   this->preprocessPoints();
-
-// }
