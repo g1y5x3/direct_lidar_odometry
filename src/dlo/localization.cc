@@ -90,25 +90,27 @@ void dlo::LocalizationNode::preprocessPoints() {
   }
 }
 
-void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
-  // ADD INITIALIZATION CHECK
+// void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
+//   // ADD INITIALIZATION CHECK
 
-  // update the current odom pose
-  std::unique_lock<std::mutex> lock(this->odom_mutex_);
-  if (!this->latest_odom_pose_) {
-    RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
-    return;
-  }
-  geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
-  lock.unlock();
+//   // update the current odom pose
+//   std::unique_lock<std::mutex> lock(this->odom_mutex_);
+//   if (!this->latest_odom_pose_) {
+//     RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
+//     return;
+//   }
+//   geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
+//   lock.unlock();
 
-  // filter the incoming point cloud if necessary
-  this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();
-  pcl::fromROSMsg(*pc_msg, *this->current_scan_);
-  if (this->current_scan_->points.size() < this->gicp_min_num_points_) {
-    RCLCPP_WARN(this->get_logger(), "Point cloud has too few points: %zu", this->current_scan_->points.size());
-    return;
-  }
+//   // filter the incoming point cloud if necessary
+//   this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();
+//   pcl::fromROSMsg(*pc_msg, *this->current_scan_);
+//   if (this->current_scan_->points.size() < this->gicp_min_num_points_) {
+//     RCLCPP_WARN(this->get_logger(), "Point cloud has too few points: %zu", this->current_scan_->points.size());
+//     return;
+//   }
 
+//   // Preprocess raw point cloud
+//   this->preprocessPoints();
 
-}
+// }

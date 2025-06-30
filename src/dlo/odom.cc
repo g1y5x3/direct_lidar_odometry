@@ -640,6 +640,7 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
   // Preprocess points
   this->preprocessPoints();
 
+  // TODO: ADD a parameters to enable/disable this
   // Publish the filtered point cloud
   sensor_msgs::msg::PointCloud2 filtered_scan;
   pcl::toROSMsg(*this->current_scan, filtered_scan);
