@@ -1403,8 +1403,8 @@ void dlo::OdomNode::debug() {
   this->cpu_percents.push_back(cpu_percent);
   double avg_cpu_usage = std::accumulate(this->cpu_percents.begin(), this->cpu_percents.end(), 0.0) / this->cpu_percents.size();
 
-  // Print to terminal
-  printf("\033[2J\033[1;1H");
+  // This would clear the terminal
+  // printf("\033[2J\033[1;1H");
 
   std::cout << std::endl << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << std::endl;
 
