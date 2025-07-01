@@ -39,6 +39,7 @@ private:
   void loadGlobalMap();
   void preprocessPoints();
   void publishTransform(const rclcpp::Time& stamp);
+  void debug();
 
   // ROS Members
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
@@ -56,15 +57,14 @@ private:
 
   // State and Threading Members
   Eigen::Matrix4f T_map_odom_;
+  Eigen::Matrix4f T_odom_base_;
   std::optional<geometry_msgs::msg::Pose> latest_odom_pose_;
-  std::mutex odom_mutex_;
   std::atomic<bool> is_initialized_;
+  std::mutex odom_mutex_;
 
   // Parameters
   std::string map_path_;
-  bool crop_use_;
-  double crop_size_;
-  bool vf_scan_use_;
-  double vf_scan_res_;
-  int gicp_min_num_points_;
+  bool initial_pose_use_;
+  Eigen::Vector3f initial_position_;
+  Eigen::Quaternionf initial_orientation_;
 };

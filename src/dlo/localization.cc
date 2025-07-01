@@ -3,11 +3,25 @@
 
 dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   
+  RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
+
   this->getParams();
+
+  if (!this->initial_pose_use_) {
+    RCLCPP_INFO(this->get_logger(), "Using initial pose from /initialpose topic");
+    this->is_initialized_ = false;
+  }
+  else {
+    RCLCPP_INFO(this->get_logger(), "Using provided initial pose");
+    this->T_map_odom_.block(0,3,3,1) = this->initial_position_;
+    this->T_map_odom_.block(0,0,3,3) = this->initial_orientation_.toRotationMatrix();
+    this->is_initialized_ = true;
+  }
 
   this->loadGlobalMap();
 
-  // CREATE A SUBSCRIBER FOR THE FILTERED SCAN
+  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
+  this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1)); 
 
 }
 
@@ -19,19 +33,29 @@ void dlo::LocalizationNode::start() {
 }
 
 void dlo::LocalizationNode::getParams() {
-  // REPLACE WITH dlo::declare_param LATER
   this->declare_parameter<std::string>("map_path", "global_map.pcd");
-  this->declare_parameter<bool>("crop_use", true);
-  this->declare_parameter<double>("crop_size", 1.0);
-  this->declare_parameter<bool>("vf_scan_use", true);
-  this->declare_parameter<double>("vf_scan_res", 0.05);
-  this->declare_parameter<int>("gicp_min_num_points", 100);
-
   this->get_parameter("map_path", this->map_path_);
-  this->get_parameter("crop_use", this->crop_use_);
-  this->get_parameter("crop_size", this->crop_size_);
-  this->get_parameter("vf_scan_use", this->vf_scan_use_);
-  this->get_parameter("vf_scan_res", this->vf_scan_res_);
+
+  this->declare_parameter<bool>("initial_pose_use", false);
+  this->get_parameter("initial_pose_use", this->initial_pose_use_);
+
+  double px, py, pz, qx, qy, qz, qw;
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/z", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/w", 1.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/x", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/y", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/z", 0.0);
+  this->get_parameter("dlo/localizationNode/initial_position/x", px);
+  this->get_parameter("dlo/localizationNode/initial_position/y", py);
+  this->get_parameter("dlo/localizationNode/initial_position/z", pz);
+  this->get_parameter("dlo/localizationNode/initial_orientation/w", qw);
+  this->get_parameter("dlo/localizationNode/initial_orientation/x", qx);
+  this->get_parameter("dlo/localizationNode/initial_orientation/y", qy);
+  this->get_parameter("dlo/localizationNode/initial_orientation/z", qz);
+  this->initial_position_ = Eigen::Vector3f(px, py, pz);
+  this->initial_orientation_ = Eigen::Quaternionf(qw, qx, qy, qz);
 }
 
 void dlo::LocalizationNode::loadGlobalMap() {
@@ -55,9 +79,6 @@ void dlo::LocalizationNode::loadGlobalMap() {
   map_msg.header.stamp = this->now();
   this->map_pub_->publish(map_msg);
   RCLCPP_INFO(this->get_logger(), "Global map published");
-
-  // Initialize map_to_odom transform
-  this->T_map_odom_ = Eigen::Matrix4f::Identity();
 }
 
 void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -78,10 +99,27 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
   geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
   lock.unlock();
 
-  // filter the incoming point cloud if necessary
   this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();
   pcl::fromROSMsg(*pc_msg, *this->current_scan_);
 
   // create the initialization guess based on the latest odom pose
 
+  this->debug();
+
+}
+
+// Debug method to print map load status and node info
+void dlo::LocalizationNode::debug() {
+  std::cout << std::endl << "==== Direct LiDAR Localization ====" << std::endl;
+  if (this->global_map_) {
+    std::cout << "Global map path: " << this->map_path_ << std::endl;
+    std::cout << "Global map points: " << this->global_map_->points.size() << std::endl;
+    if (this->global_map_->points.size() > 0) {
+      RCLCPP_INFO(this->get_logger(), "Map loaded successfully!");
+    } else {
+      std::cout << "Map pointer valid but contains 0 points!" << std::endl;
+    }
+  } else {
+    std::cout << "Map not loaded!" << std::endl;
+  }
 }
