@@ -267,11 +267,7 @@ void dlo::OdomNode::getParams() {
  **/
 
 void dlo::OdomNode::start() {
-  // ROS_INFO("Starting DLO Odometry Node");
-
-  printf("\033[2J\033[1;1H");
-  std::cout << std::endl << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << std::endl << std::endl;
-
+  RCLCPP_INFO(this->get_logger(), "Starting DLO Odometry Node...");
 }
 
 
@@ -1406,22 +1402,25 @@ void dlo::OdomNode::debug() {
   // This would clear the terminal
   // printf("\033[2J\033[1;1H");
 
-  std::cout << std::endl << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << std::endl;
+  std::stringstream ss;
+  ss << std::endl << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << std::endl;
 
   if (!this->cpu_type.empty()) {
-    std::cout << std::endl << this->cpu_type << " x " << this->numProcessors << std::endl;
+    ss << std::endl << this->cpu_type << " x " << this->numProcessors << std::endl;
   }
 
-  std::cout << std::endl << std::setprecision(4) << std::fixed;
-  std::cout << "Position    [xyz]  :: " << this->pose[0] << " " << this->pose[1] << " " << this->pose[2] << std::endl;
-  std::cout << "Orientation [wxyz] :: " << this->rotq.w() << " " << this->rotq.x() << " " << this->rotq.y() << " " << this->rotq.z() << std::endl;
-  std::cout << "Distance Traveled  :: " << length_traversed << " meters" << std::endl;
-  std::cout << "Distance to Origin :: " << sqrt(pow(this->pose[0]-this->origin[0],2) + pow(this->pose[1]-this->origin[1],2) + pow(this->pose[2]-this->origin[2],2)) << " meters" << std::endl;
+  ss << std::endl << std::setprecision(4) << std::fixed;
+  ss << "Position    [xyz]  :: " << this->pose[0] << " " << this->pose[1] << " " << this->pose[2] << std::endl;
+  ss << "Orientation [wxyz] :: " << this->rotq.w() << " " << this->rotq.x() << " " << this->rotq.y() << " " << this->rotq.z() << std::endl;
+  ss << "Distance Traveled  :: " << length_traversed << " meters" << std::endl;
+  ss << "Distance to Origin :: " << sqrt(pow(this->pose[0]-this->origin[0],2) + pow(this->pose[1]-this->origin[1],2) + pow(this->pose[2]-this->origin[2],2)) << " meters" << std::endl;
 
-  std::cout << std::endl << std::right << std::setprecision(2) << std::fixed;
-  std::cout << "Computation Time :: " << std::setfill(' ') << std::setw(6) << this->comp_times.back()*1000. << " ms    // Avg: " << std::setw(5) << avg_comp_time*1000. << std::endl;
-  std::cout << "Cores Utilized   :: " << std::setfill(' ') << std::setw(6) << (cpu_percent/100.) * this->numProcessors << " cores // Avg: " << std::setw(5) << (avg_cpu_usage/100.) * this->numProcessors << std::endl;
-  std::cout << "CPU Load         :: " << std::setfill(' ') << std::setw(6) << cpu_percent << " %     // Avg: " << std::setw(5) << avg_cpu_usage << std::endl;
-  std::cout << "RAM Allocation   :: " << std::setfill(' ') << std::setw(6) << resident_set/1000. << " MB    // VSZ: " << vm_usage/1000. << " MB" << std::endl;
+  ss << std::endl << std::right << std::setprecision(2) << std::fixed;
+  ss << "Computation Time :: " << std::setfill(' ') << std::setw(6) << this->comp_times.back()*1000. << " ms    // Avg: " << std::setw(5) << avg_comp_time*1000. << std::endl;
+  ss << "Cores Utilized   :: " << std::setfill(' ') << std::setw(6) << (cpu_percent/100.) * this->numProcessors << " cores // Avg: " << std::setw(5) << (avg_cpu_usage/100.) * this->numProcessors << std::endl;
+  ss << "CPU Load         :: " << std::setfill(' ') << std::setw(6) << cpu_percent << " %     // Avg: " << std::setw(5) << avg_cpu_usage << std::endl;
+  ss << "RAM Allocation   :: " << std::setfill(' ') << std::setw(6) << resident_set/1000. << " MB    // VSZ: " << vm_usage/1000. << " MB" << std::endl;
+
+  RCLCPP_INFO(this->get_logger(), "%s", ss.str().c_str());
 
 }
