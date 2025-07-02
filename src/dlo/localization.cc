@@ -86,7 +86,6 @@ void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPt
   this->latest_odom_pose_ = msg->pose.pose;
 }
 
-
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
   // ADD INITIALIZATION CHECK
 
@@ -97,6 +96,9 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
     return;
   }
   geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
+  this->T_odom_base_ = dlo::poseMsgToEigen(current_pose);
+  RCLCPP_INFO(this->get_logger(), "Current odom pose: [%.5f, %.5f, %.5f]",
+              this->T_odom_base_(0, 3), this->T_odom_base_(1, 3), this->T_odom_base_(2, 3));
   lock.unlock();
 
   this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();

@@ -19,8 +19,8 @@
 #include <stdlib.h>
 #include <string>
 #include <sys/times.h>
-// #include <sys/vtimes.h>
 #include <thread>
+// #include <sys/vtimes.h>
 
 #ifdef HAS_CPUID
 #include <cpuid.h>
