@@ -53,10 +53,10 @@ private:
   pcl::PointCloud<PointType>::Ptr global_map_;
 
   // State and Threading Members
-  Eigen::Matrix4f T_map_odom_, T_prev_map_odom, T_odom_base_;
-  std::optional<geometry_msgs::msg::Pose> latest_odom_pose_;
   std::atomic<bool> is_initialized_;
   std::mutex odom_mutex_;
+  std::optional<geometry_msgs::msg::Pose> latest_odom_pose_;
+  Eigen::Matrix4f T_map_odom_;
 
   // Parameters
   bool initial_pose_use_;

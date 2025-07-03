@@ -43,8 +43,8 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   // initialize the GICP
   this->setupGICP();
 
-  // this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
-  // this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1)); 
+  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
+  this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1)); 
 
 }
 
@@ -144,6 +144,7 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
     return;
   }
 
+  // Lock the mutex to safely access the latest odom pose and transformation
   std::unique_lock<std::mutex> lock(this->odom_mutex_);
   if (!this->latest_odom_pose_) {
     RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
@@ -153,31 +154,50 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
   Eigen::Matrix4f T_map_odom_last = this->T_map_odom_;
   lock.unlock();
 
-  // Convert ROS messages to PCL and Eigen formats
+  // Set input source for GICP
   pcl::PointCloud<PointType>::Ptr current_scan = std::make_shared<pcl::PointCloud<PointType>>();
   pcl::fromROSMsg(*pc_msg, *current_scan_);
-  Eigen::Matrix4f T_odom_base = dlo::poseMsgToEigen(current_pose);
+  this->gicp_.setInputSource(current_scan);
+  this->gicp_.calculateSourceCovariances();
 
   // Create the initial guess for GICP
-  Eigen::Matrix4f T_inital_guess = T_map_odom_last * T_odom_base_;
+  Eigen::Matrix4f T_odom_base = dlo::poseMsgToEigen(current_pose);
+  Eigen::Matrix4f T_inital_guess = T_map_odom_last * T_odom_base;
+  pcl::PointCloud<PointType>::Ptr aligned = std::make_shared<pcl::PointCloud<PointType>>();
+  this->gicp_.align(*aligned, T_inital_guess);
+
+  Eigen::Matrix4f T_map_base_new = this->gicp_.getFinalTransformation();
+  Eigen::Matrix4f T_map_odom_new = T_map_base_new * T_odom_base.inverse();
   
-  // Align the current scan to the glocal map
+  lock.lock();
+  this->T_map_odom_ = T_map_odom_new;
+  lock.unlock();
 
   this->debug();
-
 }
 
 // Debug method to print map load status and node info
 void dlo::LocalizationNode::debug() {
-  std::cout << std::endl << "==== Direct LiDAR Localization ====" << std::endl;
+  std::stringstream ss;
+  std::lock_guard<std::mutex> lock(this->odom_mutex_);
+
+  Eigen::Vector3f position = this->T_map_odom_.block<3, 1>(0, 3);
+  Eigen::Quaternionf rotation(this->T_map_odom_.block<3, 3>(0, 0));
+
+  ss << std::endl << "==== Direct LiDAR Localization ====" << std::endl;
   if (this->global_map_) {
-    std::cout << "Global map points: " << this->global_map_->points.size() << std::endl;
+    ss << "Global map points: " << this->global_map_->points.size() << std::endl;
     if (this->global_map_->points.size() > 0) {
-      std::cout << "Mat loaded successfully!" << std::endl;
+      ss << "Mat loaded successfully!" << std::endl;
     } else {
-      std::cout << "Map pointer valid but contains 0 points!" << std::endl;
+      ss << "Map pointer valid but contains 0 points!" << std::endl;
     }
   } else {
-    std::cout << "Map not loaded!" << std::endl;
+    ss << "Map not loaded!" << std::endl;
   }
+  ss << "Current Map->Odom Pose: " << std::endl;
+  ss << "Position: [" << position.x() << ", " << position.y() << ", " << position.z() << "]" << std::endl;
+  ss << "Orientation: [" << rotation.w() << ", " << rotation.x() << ", " << rotation.y() << " , " << rotation.z() << "]" << std::endl;
+
+  RCLCPP_INFO(this->get_logger(), "%s", ss.str().c_str());
 }
