@@ -136,7 +136,6 @@ void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWi
 void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(this->odom_mutex_);
   this->latest_odom_pose_ = msg->pose.pose;
-  RCLCPP_INFO(this->get_logger(), "Received odometry pose!");
 }
 
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
@@ -155,32 +154,18 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
   Eigen::Matrix4f T_map_odom_last = this->T_map_odom_;
   lock.unlock();
 
-  RCLCPP_INFO(this->get_logger(), "Updated the latest odom pose, processing pointcloud...");
-
   // Set input source for GICP
   pcl::PointCloud<PointType>::Ptr current_scan = std::make_shared<pcl::PointCloud<PointType>>();
   pcl::fromROSMsg(*pc_msg, *current_scan);
-  RCLCPP_INFO(this->get_logger(), "Pointcloud received with %zu points", current_scan->points.size());
-
-  RCLCPP_INFO(this->get_logger(), "Received pointcloud, setup input source for GICP...");
-
   this->gicp_.setInputSource(current_scan);
-
-  RCLCPP_INFO(this->get_logger(), "GICP setup finished, calculating the initial guess...");
 
   // Create the initial guess for GICP
   Eigen::Matrix4f T_odom_base = dlo::poseMsgToEigen(current_pose);
-  RCLCPP_INFO(this->get_logger(), "Current odom pose converted to Eigen matrix");
   Eigen::Matrix4f T_initial_guess = T_map_odom_last * T_odom_base;
-  // std::stringstream ss;
-  // ss << "T_initial_guess:\n" << T_initial_guess;
-  // RCLCPP_INFO(this->get_logger(), "%s", ss.str().c_str());
-  // RCLCPP_INFO(this->get_logger(), "Initial guess for GICP set, starting alignment...");
-
   pcl::PointCloud<PointType>::Ptr aligned = std::make_shared<pcl::PointCloud<PointType>>();
   this->gicp_.align(*aligned, T_initial_guess);
-  RCLCPP_INFO(this->get_logger(), "Initial guess provided, computing final transform...");
 
+  // Compute the final transformation
   Eigen::Matrix4f T_map_base_new = this->gicp_.getFinalTransformation();
   Eigen::Matrix4f T_map_odom_new = T_map_base_new * T_odom_base.inverse();
   
