@@ -1,12 +1,31 @@
 #include "dlo/localization.h"
-#include "dlo/utils.h"
 
 dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
-  
+
   RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
 
-  this->getParams();
+  // Parameters declaration
+  this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", true);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/z", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/w", 1.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/x", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/y", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/z", 0.0);
 
+  this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
+
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/kCorrespondences", 20);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", std::sqrt(std::numeric_limits<double>::max()));
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/maxIterations", 64);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/transformationEpsilon", 0.0005);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", -std::numeric_limits<double>::max());
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/ransac/iterations", 0);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", 0.05);
+
+  // read map -> odom initialization 
+  this->getinitParams();
   if (!this->initial_pose_use_) {
     RCLCPP_INFO(this->get_logger(), "Using initial pose from /initialpose topic");
     this->is_initialized_ = false;
@@ -18,10 +37,14 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
     this->is_initialized_ = true;
   }
 
+  // load and publish the global map
   this->loadGlobalMap();
 
-  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
-  this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1)); 
+  // initialize the GICP
+  this->setupGICP();
+
+  // this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
+  // this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1)); 
 
 }
 
@@ -32,21 +55,10 @@ void dlo::LocalizationNode::start() {
   RCLCPP_INFO(this->get_logger(), "Starting DLO Localization Node");
 }
 
-void dlo::LocalizationNode::getParams() {
-  this->declare_parameter<std::string>("map_path", "global_map.pcd");
-  this->get_parameter("map_path", this->map_path_);
-
-  this->declare_parameter<bool>("initial_pose_use", false);
-  this->get_parameter("initial_pose_use", this->initial_pose_use_);
+void dlo::LocalizationNode::getinitParams() {
+  this->get_parameter("dlo/localizationNode/initial_pose_use", this->initial_pose_use_);
 
   double px, py, pz, qx, qy, qz, qw;
-  this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_position/z", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/w", 1.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/x", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/y", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/z", 0.0);
   this->get_parameter("dlo/localizationNode/initial_position/x", px);
   this->get_parameter("dlo/localizationNode/initial_position/y", py);
   this->get_parameter("dlo/localizationNode/initial_position/z", pz);
@@ -59,26 +71,66 @@ void dlo::LocalizationNode::getParams() {
 }
 
 void dlo::LocalizationNode::loadGlobalMap() {
+  // initialization
   rclcpp::QoS qos(rclcpp::KeepLast(1));
   qos.transient_local();
   this->map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map", qos);
 
+  // load the point cloud map
+  std::string map_path; 
+  this->get_parameter("dlo/localizationNode/map_path", map_path);
   this->global_map_ = std::make_shared<pcl::PointCloud<PointType>>();
-  if (pcl::io::loadPCDFile<PointType>(this->map_path_, *this->global_map_) == -1) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to load global map from %s", this->map_path_.c_str());
+
+  if (pcl::io::loadPCDFile<PointType>(map_path, *this->global_map_) == -1) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to load global map from %s", map_path.c_str());
     rclcpp::shutdown();
     return;
   }
-
   RCLCPP_INFO(this->get_logger(), "Global map loaded with %zu points", this->global_map_->points.size());
 
+  // publish the map
   sensor_msgs::msg::PointCloud2 map_msg;
   pcl::toROSMsg(*this->global_map_, map_msg);
-
   map_msg.header.frame_id = "map";
   map_msg.header.stamp = this->now();
   this->map_pub_->publish(map_msg);
   RCLCPP_INFO(this->get_logger(), "Global map published");
+
+}
+
+void dlo::LocalizationNode::setupGICP() {
+  int kCorrespondences, maxIterations, ransacIterations;
+  double maxCorrespondenceDistance, transformationEpsilon, euclideanFitnessEpsilon, ransacOutlierRejectionThresh;
+
+  this->get_parameter("dlo/odomNode/gicp/s2m/kCorrespondences", kCorrespondences);
+  this->get_parameter("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", maxCorrespondenceDistance);
+  this->get_parameter("dlo/odomNode/gicp/s2m/maxIterations", maxIterations);
+  this->get_parameter("dlo/odomNode/gicp/s2m/transformationEpsilon", transformationEpsilon);
+  this->get_parameter("dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", euclideanFitnessEpsilon);
+  this->get_parameter("dlo/odomNode/gicp/s2m/ransac/iterations", ransacIterations);
+  this->get_parameter("dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", ransacOutlierRejectionThresh);
+
+  // Initialize GICP parameters
+  this->gicp_.setCorrespondenceRandomness(kCorrespondences);
+  this->gicp_.setMaxCorrespondenceDistance(maxCorrespondenceDistance);
+  this->gicp_.setMaximumIterations(maxIterations);
+  this->gicp_.setTransformationEpsilon(transformationEpsilon);
+  this->gicp_.setEuclideanFitnessEpsilon(euclideanFitnessEpsilon);
+  this->gicp_.setRANSACIterations(ransacIterations);
+  this->gicp_.setRANSACOutlierRejectionThreshold(ransacOutlierRejectionThresh);
+
+  pcl::Registration<PointType, PointType>::KdTreeReciprocalPtr temp;
+  this->gicp_.setSearchMethodSource(temp);
+  this->gicp_.setSearchMethodTarget(temp);
+
+  this->gicp_.setInputTarget(this->global_map_);
+  this->gicp_.calculateTargetCovariances();
+
+  RCLCPP_INFO(this->get_logger(), "GICP initialization completed!");
+}
+
+void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+  std::lock_guard<std::mutex> lock(this->odom_mutex_);
 }
 
 void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -87,24 +139,29 @@ void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPt
 }
 
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
-  // ADD INITIALIZATION CHECK
+  if (!this->is_initialized_) {
+    RCLCPP_WARN(this->get_logger(), "Localization node not initialized, waiting for initial pose");
+    return;
+  }
 
-  // update the current odom pose
   std::unique_lock<std::mutex> lock(this->odom_mutex_);
   if (!this->latest_odom_pose_) {
     RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
     return;
   }
   geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
-  this->T_odom_base_ = dlo::poseMsgToEigen(current_pose);
-  RCLCPP_INFO(this->get_logger(), "Current odom pose: [%.5f, %.5f, %.5f]",
-              this->T_odom_base_(0, 3), this->T_odom_base_(1, 3), this->T_odom_base_(2, 3));
+  Eigen::Matrix4f T_map_odom_last = this->T_map_odom_;
   lock.unlock();
 
-  this->current_scan_ = std::make_shared<pcl::PointCloud<PointType>>();
-  pcl::fromROSMsg(*pc_msg, *this->current_scan_);
+  // Convert ROS messages to PCL and Eigen formats
+  pcl::PointCloud<PointType>::Ptr current_scan = std::make_shared<pcl::PointCloud<PointType>>();
+  pcl::fromROSMsg(*pc_msg, *current_scan_);
+  Eigen::Matrix4f T_odom_base = dlo::poseMsgToEigen(current_pose);
 
-  // create the initialization guess based on the latest odom pose
+  // Create the initial guess for GICP
+  Eigen::Matrix4f T_inital_guess = T_map_odom_last * T_odom_base_;
+  
+  // Align the current scan to the glocal map
 
   this->debug();
 
@@ -114,10 +171,9 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
 void dlo::LocalizationNode::debug() {
   std::cout << std::endl << "==== Direct LiDAR Localization ====" << std::endl;
   if (this->global_map_) {
-    std::cout << "Global map path: " << this->map_path_ << std::endl;
     std::cout << "Global map points: " << this->global_map_->points.size() << std::endl;
     if (this->global_map_->points.size() > 0) {
-      RCLCPP_INFO(this->get_logger(), "Map loaded successfully!");
+      std::cout << "Mat loaded successfully!" << std::endl;
     } else {
       std::cout << "Map pointer valid but contains 0 points!" << std::endl;
     }

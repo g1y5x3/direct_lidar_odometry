@@ -1,13 +1,12 @@
 #include "dlo/dlo.h"
-#include "rclcpp/rclcpp.hpp"
+#include "dlo/utils.h"
 
 // PCL
-#include <pcl/filters/crop_box.h>
-#include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl_conversions/pcl_conversions.h>
 
 // ROS Messages and TF2
+#include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
@@ -16,7 +15,7 @@
 // Nano GCIP
 #include <nano_gicp/nano_gicp.hpp>
 
-#include <mutex>
+// Standard Libraries
 #include <optional>
 
 typedef pcl::PointXYZI PointType;
@@ -30,16 +29,16 @@ public:
   void start();
 
 private:
+  void getinitParams();
+  void loadGlobalMap();
+  void setupGICP();
+  void publishTransform(const rclcpp::Time& stamp);
+  void debug();
+
   // ROS Callback Functions
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg);
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
-
-  void getParams();
-  void loadGlobalMap();
-  void preprocessPoints();
-  void publishTransform(const rclcpp::Time& stamp);
-  void debug();
 
   // ROS Members
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
@@ -52,18 +51,14 @@ private:
   nano_gicp::NanoGICP<PointType, PointType> gicp_;
   pcl::PointCloud<PointType>::Ptr current_scan_;
   pcl::PointCloud<PointType>::Ptr global_map_;
-  pcl::CropBox<PointType> crop_;
-  pcl::VoxelGrid<PointType> vf_scan_;
 
   // State and Threading Members
-  Eigen::Matrix4f T_map_odom_;
-  Eigen::Matrix4f T_odom_base_;
+  Eigen::Matrix4f T_map_odom_, T_prev_map_odom, T_odom_base_;
   std::optional<geometry_msgs::msg::Pose> latest_odom_pose_;
   std::atomic<bool> is_initialized_;
   std::mutex odom_mutex_;
 
   // Parameters
-  std::string map_path_;
   bool initial_pose_use_;
   Eigen::Vector3f initial_position_;
   Eigen::Quaternionf initial_orientation_;
