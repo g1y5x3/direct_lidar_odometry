@@ -56,7 +56,17 @@ private:
   std::atomic<bool> is_initialized_;
   std::mutex odom_mutex_;
   std::optional<geometry_msgs::msg::Pose> latest_odom_pose_;
-  Eigen::Matrix4f T_map_odom_;
+  Eigen::Matrix4f T_map_odom_ = Eigen::Matrix4f::Identity();
+
+  // Motion Prediction
+  struct OdomState {
+    rclcpp::Time stamp;
+    geometry_msgs::msg::Pose pose;
+  };
+  std::optional<OdomState> latest_odom_state_;
+  std::optional<OdomState> previous_odom_state_;
+  Eigen::Vector3f linear_velocity_ = Eigen::Vector3f::Zero();
+  Eigen::Vector3f angular_velocity_ = Eigen::Vector3f::Zero();
 
   // Parameters
   bool initial_pose_use_;

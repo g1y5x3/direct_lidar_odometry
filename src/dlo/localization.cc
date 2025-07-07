@@ -157,6 +157,40 @@ void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWi
 void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(this->odom_mutex_);
   this->latest_odom_pose_ = msg->pose.pose;
+  
+  OdomState current_odom_state;
+  current_odom_state.stamp = msg->header.stamp;
+  current_odom_state.pose = msg->pose.pose;
+
+  if (this->latest_odom_state_) {
+    this->previous_odom_state_ = latest_odom_state_;
+
+    double dt = (current_odom_state.stamp - previous_odom_state_->stamp).seconds();
+    if (dt > 1e-3) {
+      Eigen::Vector3f prev_pose(this->previous_odom_state_->pose.position.x,
+                                this->previous_odom_state_->pose.position.y,
+                                this->previous_odom_state_->pose.position.z);
+      Eigen::Vector3f curr_pose(current_odom_state.pose.position.x,
+                                current_odom_state.pose.position.y,
+                                current_odom_state.pose.position.z);
+      this->linear_velocity_ = (curr_pose - prev_pose) / dt;
+
+
+      Eigen::Quaternionf prev_q(this->previous_odom_state_->pose.orientation.w,
+                                this->previous_odom_state_->pose.orientation.x,
+                                this->previous_odom_state_->pose.orientation.y,
+                                this->previous_odom_state_->pose.orientation.z);
+      Eigen::Quaternionf curr_q(current_odom_state.pose.orientation.w,
+                                current_odom_state.pose.orientation.x,
+                                current_odom_state.pose.orientation.y,
+                                current_odom_state.pose.orientation.z);
+      Eigen::Quaternionf delta_q = curr_q * prev_q.inverse();
+      Eigen::AngleAxisf angle_axis(delta_q);
+      this->angular_velocity_ = angle_axis.axis() * angle_axis.angle() / dt;
+    }
+  }
+
+  this->latest_odom_state_ = current_odom_state;
 }
 
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
