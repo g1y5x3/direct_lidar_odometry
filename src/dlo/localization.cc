@@ -45,6 +45,7 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
 
   this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
   this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1)); 
+  this->tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
 }
 
@@ -129,6 +130,26 @@ void dlo::LocalizationNode::setupGICP() {
   RCLCPP_INFO(this->get_logger(), "GICP initialization completed!");
 }
 
+void dlo::LocalizationNode::publishTransform(const rclcpp::Time& stamp) {
+  geometry_msgs::msg::TransformStamped transform_msg;
+  transform_msg.header.stamp = stamp;
+  transform_msg.header.frame_id = "map";
+  transform_msg.child_frame_id = "odom";
+
+  Eigen::Matrix4f T_map_odom = this->T_map_odom_;
+  transform_msg.transform.translation.x = T_map_odom(0, 3);
+  transform_msg.transform.translation.y = T_map_odom(1, 3);
+  transform_msg.transform.translation.z = T_map_odom(2, 3);
+
+  Eigen::Quaternionf q(T_map_odom.block<3, 3>(0, 0));
+  transform_msg.transform.rotation.w = q.w();
+  transform_msg.transform.rotation.x = q.x();
+  transform_msg.transform.rotation.y = q.y();
+  transform_msg.transform.rotation.z = q.z();
+
+  this->tf_broadcaster_->sendTransform(transform_msg);
+}
+
 void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(this->odom_mutex_);
 }
@@ -139,6 +160,8 @@ void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPt
 }
 
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
+  rclcpp::Time scan_stamp = pc_msg->header.stamp;
+
   if (!this->is_initialized_) {
     RCLCPP_WARN(this->get_logger(), "Localization node not initialized, waiting for initial pose");
     return;
@@ -172,6 +195,9 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
   lock.lock();
   this->T_map_odom_ = T_map_odom_new;
   lock.unlock();
+
+  // Publish the transformation
+  this->publishTransform(scan_stamp);
 
   this->debug();
 }
