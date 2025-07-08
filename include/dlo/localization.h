@@ -55,7 +55,6 @@ private:
   // State and Threading Members
   std::atomic<bool> is_initialized_;
   std::mutex odom_mutex_;
-  std::optional<geometry_msgs::msg::Pose> latest_odom_pose_;
   Eigen::Matrix4f T_map_odom_ = Eigen::Matrix4f::Identity();
 
   // Motion Prediction
