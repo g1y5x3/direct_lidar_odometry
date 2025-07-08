@@ -36,7 +36,8 @@ dlo::OdomNode::OdomNode() : Node("dlo_odom_node") {
   this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("imu", 1, std::bind(&dlo::OdomNode::imuCB, this, std::placeholders::_1));
 
   this->odom_pub = this->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
-  this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
+  // this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
+  this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("submap", 1);
   this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("pose", 1);
   this->kf_pub = this->create_publisher<nav_msgs::msg::Odometry>("kfs", 1);
   this->keyframe_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("keyframe", 1);
@@ -638,11 +639,11 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
 
   // TODO: ADD a parameters to enable/disable this
   // Publish the filtered point cloud
-  sensor_msgs::msg::PointCloud2 filtered_scan;
-  pcl::toROSMsg(*this->current_scan, filtered_scan);
-  filtered_scan.header.stamp = this->scan_stamp;
-  filtered_scan.header.frame_id = pc->header.frame_id;
-  this->filtered_scan_pub->publish(filtered_scan);
+  // sensor_msgs::msg::PointCloud2 filtered_scan;
+  // pcl::toROSMsg(*this->current_scan, filtered_scan);
+  // filtered_scan.header.stamp = this->scan_stamp;
+  // filtered_scan.header.frame_id = pc->header.frame_id;
+  // this->filtered_scan_pub->publish(filtered_scan);
 
   // Compute Metrics
   this->metrics_thread = std::thread( &dlo::OdomNode::computeMetrics, this );
@@ -671,6 +672,13 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
 
   // Update current keyframe poses and map
   this->updateKeyframes();
+
+  // Publish the submap for localization node
+  sensor_msgs::msg::PointCloud2 pc_submap;
+  pcl::toROSMsg(*this->submap_cloud, pc_submap);
+  pc_submap.header.stamp = this->scan_stamp;
+  pc_submap.header.frame_id = this->odom_frame;
+  this->submap_pub->publish(pc_submap);
 
   // Update trajectory
   this->trajectory.push_back( std::make_pair(this->pose, this->rotq) );
