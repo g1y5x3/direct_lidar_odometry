@@ -24,7 +24,7 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   this->declare_parameter<int>("dlo/odomNode/gicp/s2m/ransac/iterations", 0);
   this->declare_parameter<double>("dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", 0.05);
 
-  // read map -> odom initialization 
+  // read map -> odom initialization
   this->getinitParams();
   if (!this->initial_pose_use_) {
     RCLCPP_INFO(this->get_logger(), "Using initial pose from /initialpose topic");
@@ -44,7 +44,7 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   this->setupGICP();
 
   this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
-  this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1)); 
+  this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("filtered_scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
   this->tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
 }
@@ -78,7 +78,7 @@ void dlo::LocalizationNode::loadGlobalMap() {
   this->map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map", qos);
 
   // load the point cloud map
-  std::string map_path; 
+  std::string map_path;
   this->get_parameter("dlo/localizationNode/map_path", map_path);
   this->global_map_ = std::make_shared<pcl::PointCloud<PointType>>();
 
@@ -157,7 +157,7 @@ void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWi
 void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(this->odom_mutex_);
   this->latest_odom_pose_ = msg->pose.pose;
-  
+
   OdomState current_odom_state;
   current_odom_state.stamp = msg->header.stamp;
   current_odom_state.pose = msg->pose.pose;
@@ -207,25 +207,60 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
     RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
     return;
   }
-  geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
+
+  OdomState odom_state = *this->latest_odom_state_;
+
+  // Skip scan if it's older than the latest odometry
+  if (rclcpp::Time(pc_msg->header.stamp) < odom_state.stamp) {
+    RCLCPP_WARN(this->get_logger(), "Pointcloud timestamp is older than latest odom state, skipping");
+    return;
+  }
+
   Eigen::Matrix4f T_map_odom_last = this->T_map_odom_;
+
+  // Motion prediction variables
+  double time_since_odom = (rclcpp::Time(scan_stamp) - odom_state.stamp).seconds();
+  Eigen::Vector3f pred_linear_velocity = this->linear_velocity_;
+  Eigen::Vector3f pred_angular_velocity = this->angular_velocity_;
+
+  geometry_msgs::msg::Pose current_pose = *this->latest_odom_pose_;
+
   lock.unlock();
+
+  // Predict the pose at the time of the point cloud
+  Eigen::Matrix4f T_odom_baselink = dlo::poseMsgToEigen(odom_state.pose);
+
+  Eigen::Translation3f pred_translation(pred_linear_velocity * time_since_odom);
+  Eigen::AngleAxisf pred_rotation(pred_angular_velocity.norm() * time_since_odom,
+                                  pred_angular_velocity.normalized());
+  Eigen::Matrix4f T_pred = Eigen::Matrix4f::Identity();
+  T_pred.block<3, 3>(0, 0) = pred_rotation.toRotationMatrix();
+  T_pred.block<3, 1>(0, 3) = pred_translation.translation();
+
+  Eigen::Matrix4f T_odom_baselink_pred = T_odom_baselink * T_pred;
+
+  Eigen::Matrix4f T_odom_base = dlo::poseMsgToEigen(current_pose);
+
+  Eigen::Matrix4f T_initial_guess = T_map_odom_last * T_odom_baselink_pred;
+
+  RCLCPP_INFO(this->get_logger(), "Calculate Odom Prediction Done!");
 
   // Set input source for GICP
   pcl::PointCloud<PointType>::Ptr current_scan = std::make_shared<pcl::PointCloud<PointType>>();
   pcl::fromROSMsg(*pc_msg, *current_scan);
   this->gicp_.setInputSource(current_scan);
 
-  // Create the initial guess for GICP
-  Eigen::Matrix4f T_odom_base = dlo::poseMsgToEigen(current_pose);
-  Eigen::Matrix4f T_initial_guess = T_map_odom_last * T_odom_base;
+  RCLCPP_INFO(this->get_logger(), "Loaded point cloud with the current scan!");
+
   pcl::PointCloud<PointType>::Ptr aligned = std::make_shared<pcl::PointCloud<PointType>>();
   this->gicp_.align(*aligned, T_initial_guess);
+
+  RCLCPP_INFO(this->get_logger(), "GICP alignment completed!");
 
   // Compute the final transformation
   Eigen::Matrix4f T_map_base_new = this->gicp_.getFinalTransformation();
   Eigen::Matrix4f T_map_odom_new = T_map_base_new * T_odom_base.inverse();
-  
+
   lock.lock();
   this->T_map_odom_ = T_map_odom_new;
   lock.unlock();
