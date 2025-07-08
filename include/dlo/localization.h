@@ -15,9 +15,6 @@
 // Nano GCIP
 #include <nano_gicp/nano_gicp.hpp>
 
-// Standard Libraries
-#include <optional>
-
 typedef pcl::PointXYZI PointType;
 
 class dlo::LocalizationNode : public rclcpp::Node {
@@ -36,15 +33,13 @@ private:
   void debug();
 
   // ROS Callback Functions
-  void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg);
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
 
   // ROS Members
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pc_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   // GICP and PCL Members
@@ -54,18 +49,8 @@ private:
 
   // State and Threading Members
   std::atomic<bool> is_initialized_;
-  std::mutex odom_mutex_;
+  std::mutex icp_mutex_;
   Eigen::Matrix4f T_map_odom_ = Eigen::Matrix4f::Identity();
-
-  // Motion Prediction
-  struct OdomState {
-    rclcpp::Time stamp;
-    geometry_msgs::msg::Pose pose;
-  };
-  std::optional<OdomState> latest_odom_state_;
-  std::optional<OdomState> previous_odom_state_;
-  Eigen::Vector3f linear_velocity_ = Eigen::Vector3f::Zero();
-  Eigen::Vector3f angular_velocity_ = Eigen::Vector3f::Zero();
 
   // Parameters
   bool initial_pose_use_;

@@ -17,12 +17,12 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
 
   this->declare_parameter<int>("dlo/odomNode/gicp/s2m/kCorrespondences", 20);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", std::sqrt(std::numeric_limits<double>::max()));
-  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/maxIterations", 64);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/transformationEpsilon", 0.0005);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", -std::numeric_limits<double>::max());
-  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/ransac/iterations", 0);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", 0.05);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", 0.5);
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/maxIterations", 32);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/transformationEpsilon", 0.01);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", 0.01);
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/ransac/iterations", 5);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", 1.0);
 
   // read map -> odom initialization
   this->getinitParams();
@@ -43,8 +43,8 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   // initialize the GICP
   this->setupGICP();
 
-  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
   this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
+
   this->tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
 }
@@ -151,45 +151,7 @@ void dlo::LocalizationNode::publishTransform(const rclcpp::Time& stamp) {
 }
 
 void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(this->odom_mutex_);
-}
-
-void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(this->odom_mutex_);
-
-  OdomState current_odom_state;
-  current_odom_state.stamp = msg->header.stamp;
-  current_odom_state.pose = msg->pose.pose;
-
-  if (this->latest_odom_state_) {
-    this->previous_odom_state_ = latest_odom_state_;
-
-    double dt = (current_odom_state.stamp - previous_odom_state_->stamp).seconds();
-    if (dt > 1e-3) {
-      Eigen::Vector3f prev_pose(this->previous_odom_state_->pose.position.x,
-                                this->previous_odom_state_->pose.position.y,
-                                this->previous_odom_state_->pose.position.z);
-      Eigen::Vector3f curr_pose(current_odom_state.pose.position.x,
-                                current_odom_state.pose.position.y,
-                                current_odom_state.pose.position.z);
-      this->linear_velocity_ = (curr_pose - prev_pose) / dt;
-
-
-      Eigen::Quaternionf prev_q(this->previous_odom_state_->pose.orientation.w,
-                                this->previous_odom_state_->pose.orientation.x,
-                                this->previous_odom_state_->pose.orientation.y,
-                                this->previous_odom_state_->pose.orientation.z);
-      Eigen::Quaternionf curr_q(current_odom_state.pose.orientation.w,
-                                current_odom_state.pose.orientation.x,
-                                current_odom_state.pose.orientation.y,
-                                current_odom_state.pose.orientation.z);
-      Eigen::Quaternionf delta_q = curr_q * prev_q.inverse();
-      Eigen::AngleAxisf angle_axis(delta_q);
-      this->angular_velocity_ = angle_axis.axis() * angle_axis.angle() / dt;
-    }
-  }
-
-  this->latest_odom_state_ = current_odom_state;
+  std::lock_guard<std::mutex> lock(this->icp_mutex_);
 }
 
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
@@ -201,51 +163,20 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
   }
 
   // Lock the mutex to safely access the latest odom pose and transformation
-  std::unique_lock<std::mutex> lock(this->odom_mutex_);
-  if (!this->latest_odom_state_) {
-    RCLCPP_WARN(this->get_logger(), "No latest odom pose available, skipping pointcloud processing");
-    return;
-  }
-
-  OdomState odom_state = *this->latest_odom_state_;
-
-  // Skip scan if it's older than the latest odometry
-  if (rclcpp::Time(pc_msg->header.stamp) < odom_state.stamp) {
-    RCLCPP_WARN(this->get_logger(), "Pointcloud timestamp is older than latest odom state, skipping");
-    return;
-  }
-
+  std::unique_lock<std::mutex> lock(this->icp_mutex_);
   Eigen::Matrix4f T_map_odom_last = this->T_map_odom_;
-
-  // Motion prediction variables
-  double time_since_odom = (rclcpp::Time(scan_stamp) - odom_state.stamp).seconds();
-  Eigen::Vector3f pred_linear_velocity = this->linear_velocity_;
-  Eigen::Vector3f pred_angular_velocity = this->angular_velocity_;
-
   lock.unlock();
 
-  // Predict the pose at the time of the point cloud
-  Eigen::Matrix4f T_odom_baselink = dlo::poseMsgToEigen(odom_state.pose);
-
-  Eigen::Translation3f pred_translation(pred_linear_velocity * time_since_odom);
-  Eigen::AngleAxisf pred_rotation(pred_angular_velocity.norm() * time_since_odom,
-                                  pred_angular_velocity.normalized());
-  Eigen::Matrix4f T_pred = Eigen::Matrix4f::Identity();
-  T_pred.block<3, 3>(0, 0) = pred_rotation.toRotationMatrix();
-  T_pred.block<3, 1>(0, 3) = pred_translation.translation();
-  Eigen::Matrix4f T_odom_baselink_pred = T_odom_baselink * T_pred;
-  Eigen::Matrix4f T_initial_guess = T_map_odom_last * T_odom_baselink_pred;
   // Set input source for GICP
   pcl::PointCloud<PointType>::Ptr current_scan = std::make_shared<pcl::PointCloud<PointType>>();
   pcl::fromROSMsg(*pc_msg, *current_scan);
   this->gicp_.setInputSource(current_scan);
 
   pcl::PointCloud<PointType>::Ptr aligned = std::make_shared<pcl::PointCloud<PointType>>();
-  this->gicp_.align(*aligned, T_initial_guess);
+  this->gicp_.align(*aligned, T_map_odom_last);
 
   // Compute the final transformation
-  Eigen::Matrix4f T_map_base_new = this->gicp_.getFinalTransformation();
-  Eigen::Matrix4f T_map_odom_new = T_map_base_new * T_odom_baselink_pred.inverse();
+  Eigen::Matrix4f T_map_odom_new = this->gicp_.getFinalTransformation();
 
   lock.lock();
   this->T_map_odom_ = T_map_odom_new;
@@ -260,7 +191,7 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
 // Debug method to print map load status and node info
 void dlo::LocalizationNode::debug() {
   std::stringstream ss;
-  std::lock_guard<std::mutex> lock(this->odom_mutex_);
+  std::lock_guard<std::mutex> lock(this->icp_mutex_);
 
   Eigen::Vector3f position = this->T_map_odom_.block<3, 1>(0, 3);
   Eigen::Quaternionf rotation(this->T_map_odom_.block<3, 3>(0, 0));
