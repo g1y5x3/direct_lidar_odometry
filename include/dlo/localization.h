@@ -33,12 +33,14 @@ private:
   void debug();
 
   // ROS Callback Functions
+  void odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_msg);
   void pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg);
-  void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
+  void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr pose_msg);
 
   // ROS Members
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pc_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
@@ -50,6 +52,7 @@ private:
   // State and Threading Members
   std::atomic<bool> is_initialized_;
   std::mutex icp_mutex_;
+  Eigen::Matrix4f T_odom_baselink_ = Eigen::Matrix4f::Identity();
   Eigen::Matrix4f T_map_odom_ = Eigen::Matrix4f::Identity();
 
   // Parameters

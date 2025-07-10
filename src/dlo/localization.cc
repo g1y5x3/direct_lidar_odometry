@@ -5,7 +5,7 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
 
   // Parameters declaration
-  this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", true);
+  this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", false);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/z", 0.0);
@@ -43,7 +43,14 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   // initialize the GICP
   this->setupGICP();
 
-  this->pc_sub_   = this->create_subscription<sensor_msgs::msg::PointCloud2>("scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
+  this->pc_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+    "scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
+
+  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    "odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
+
+  this->initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+    "initialpose", 1, std::bind(&dlo::LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
 
   this->tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
@@ -150,10 +157,51 @@ void dlo::LocalizationNode::publishTransform(const rclcpp::Time& stamp) {
   this->tf_broadcaster_->sendTransform(transform_msg);
 }
 
-void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_msg) {
   std::lock_guard<std::mutex> lock(this->icp_mutex_);
+
+  // Extract the position and orientation from the received message
+  Eigen::Translation3f translation(
+      static_cast<float>(odom_msg->pose.pose.position.x),
+      static_cast<float>(odom_msg->pose.pose.position.y),
+      static_cast<float>(odom_msg->pose.pose.position.z)
+  );
+  Eigen::Quaternionf rotation(
+      static_cast<float>(odom_msg->pose.pose.orientation.w),
+      static_cast<float>(odom_msg->pose.pose.orientation.x),
+      static_cast<float>(odom_msg->pose.pose.orientation.y),
+      static_cast<float>(odom_msg->pose.pose.orientation.z)
+  );
+
+  this->T_odom_baselink_ = (translation * rotation).matrix();
 }
 
+// The initial pose of the robot base link frame w.r.t to the map frame
+void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+  std::lock_guard<std::mutex> lock(this->icp_mutex_);
+
+  // Extract the position and orientation from the received message
+  Eigen::Translation3f translation(
+      static_cast<float>(msg->pose.pose.position.x),
+      static_cast<float>(msg->pose.pose.position.y),
+      static_cast<float>(msg->pose.pose.position.z)
+  );
+  Eigen::Quaternionf rotation(
+      static_cast<float>(msg->pose.pose.orientation.w),
+      static_cast<float>(msg->pose.pose.orientation.x),
+      static_cast<float>(msg->pose.pose.orientation.y),
+      static_cast<float>(msg->pose.pose.orientation.z)
+  );
+
+  Eigen::Matrix4f T_map_baselink = (translation * rotation).matrix();
+  this->T_map_odom_ = T_map_baselink * this->T_odom_baselink_.inverse();
+  this->is_initialized_ = true;
+  RCLCPP_INFO(this->get_logger(), "Initial pose set: Position [%f, %f, %f], Orientation [%f, %f, %f, %f]",
+              translation.x(), translation.y(), translation.z(),
+              rotation.w(), rotation.x(), rotation.y(), rotation.z());
+}
+
+// Utilize DLO's submap point cloud to localize the robot in the global map to avoid drifting
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
   rclcpp::Time scan_stamp = pc_msg->header.stamp;
 
