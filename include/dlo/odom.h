@@ -19,21 +19,14 @@
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
 #include <pcl_conversions/pcl_conversions.h>
-// #include <pcl_ros/impl/transforms.hpp>
-// #include <pcl_ros/point_cloud.h>
-// #include <pcl_ros/transforms.h>
 #include <tf2_ros/transform_broadcaster.h>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
-// #include <sensor_msgs/CameraInfo.h>
-// #include <sensor_msgs/Image.h>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-// #include <direct_lidar_odometry/save_pcd.h>
-// #include <direct_lidar_odometry/save_traj.h>
 #include <nano_gicp/nano_gicp.hpp>
 
 typedef pcl::PointXYZI PointType;
@@ -66,6 +59,7 @@ private:
   void publishPose();
   void publishTransform();
   void publishKeyframe();
+  void publishSubmap();
 
   void preprocessPoints();
   void initializeInputTarget();
@@ -111,7 +105,6 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr keyframe_pub;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr kf_pub;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr submap_pub;
-  // rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
 
   Eigen::Vector3f origin;
   std::vector<std::pair<Eigen::Vector3f, Eigen::Quaternionf>> trajectory;

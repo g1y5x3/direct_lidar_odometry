@@ -423,6 +423,14 @@ void dlo::OdomNode::publishKeyframe() {
 
 }
 
+void dlo::OdomNode::publishSubmap() {
+  // Publish submap
+  sensor_msgs::msg::PointCloud2 pc_submap;
+  pcl::toROSMsg(*this->submap_cloud, pc_submap);
+  pc_submap.header.stamp = this->scan_stamp;
+  pc_submap.header.frame_id = this->odom_frame;
+  this->submap_pub->publish(pc_submap);
+}
 
 /**
  * Preprocessing
@@ -637,14 +645,6 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
   // Preprocess points
   this->preprocessPoints();
 
-  // TODO: ADD a parameters to enable/disable this
-  // Publish the filtered point cloud
-  // sensor_msgs::msg::PointCloud2 filtered_scan;
-  // pcl::toROSMsg(*this->current_scan, filtered_scan);
-  // filtered_scan.header.stamp = this->scan_stamp;
-  // filtered_scan.header.frame_id = pc->header.frame_id;
-  // this->filtered_scan_pub->publish(filtered_scan);
-
   // Compute Metrics
   this->metrics_thread = std::thread( &dlo::OdomNode::computeMetrics, this );
   this->metrics_thread.detach();
@@ -674,11 +674,13 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
   this->updateKeyframes();
 
   // Publish the submap for localization node
-  sensor_msgs::msg::PointCloud2 pc_submap;
-  pcl::toROSMsg(*this->submap_cloud, pc_submap);
-  pc_submap.header.stamp = this->scan_stamp;
-  pc_submap.header.frame_id = this->odom_frame;
-  this->submap_pub->publish(pc_submap);
+  this->publishSubmap();
+
+  // sensor_msgs::msg::PointCloud2 pc_submap;
+  // pcl::toROSMsg(*this->submap_cloud, pc_submap);
+  // pc_submap.header.stamp = this->scan_stamp;
+  // pc_submap.header.frame_id = this->odom_frame;
+  // this->submap_pub->publish(pc_submap);
 
   // Update trajectory
   this->trajectory.push_back( std::make_pair(this->pose, this->rotq) );
