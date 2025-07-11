@@ -259,7 +259,10 @@ void dlo::OdomNode::getParams() {
   dlo::declare_param(this, "dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", this->gicps2m_euclidean_fitness_ep_, -std::numeric_limits<double>::max());
   dlo::declare_param(this, "dlo/odomNode/gicp/s2m/ransac/iterations", this->gicps2m_ransac_iter_, 0);
   dlo::declare_param(this, "dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", this->gicps2m_ransac_inlier_thresh_, 0.05);
-
+  
+  // Loop Closure
+  dlo::declare_param(this, "dlo/odomNode/loopClosure/enabled", this->loop_closure_enabled_, true);
+  dlo::declare_param(this, "dlo/odomNode/loopClosure/minIdDiff", this->loop_closure_min_id_diff_, 50);
 }
 
 
@@ -671,7 +674,10 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
   this->getNextPose();
 
   // Update current keyframe poses and map
-  this->updateKeyframes();
+  bool new_keyframe = this->updateKeyframes();
+  if (new_keyframe && this->loop_closure_enabled_) {
+    this->checkForLoopClosure(this->num_keyframes - 1);
+  }
 
   // Publish the submap for localization node
   this->publishSubmap();
@@ -1099,89 +1105,57 @@ void dlo::OdomNode::computeConcaveHull() {
  * Update keyframes
  **/
 
-void dlo::OdomNode::updateKeyframes() {
+bool dlo::OdomNode::updateKeyframes() {
 
   // transform point cloud
   this->transformCurrentScan();
 
-  // calculate difference in pose and rotation to all poses in trajectory
-  float closest_d = std::numeric_limits<float>::infinity();
-  int closest_idx = 0;
-  int keyframes_idx = 0;
+  if (this->keyframes.empty()) return false;
 
-  int num_nearby = 0;
+  const auto& last_keyframe_pose = this->keyframes.back().first;
+  float dd = (this->pose - last_keyframe_pose.first).norm();
+  Eigen::Quaternionf dq = this->rotq * last_keyframe_pose.second.inverse();
+  float d_theta = 2.0 * std::acos(std::abs(dq.w()));
 
-  for (const auto& k : this->keyframes) {
-
-    // calculate distance between current pose and pose in keyframes
-    float delta_d = sqrt( pow(this->pose[0] - k.first.first[0], 2) + pow(this->pose[1] - k.first.first[1], 2) + pow(this->pose[2] - k.first.first[2], 2) );
-
-    // count the number nearby current pose
-    if (delta_d <= this->keyframe_thresh_dist_ * 1.5){
-      ++num_nearby;
-    }
-
-    // store into variable
-    if (delta_d < closest_d) {
-      closest_d = delta_d;
-      closest_idx = keyframes_idx;
-    }
-
-    keyframes_idx++;
-
-  }
-
-  // get closest pose and corresponding rotation
-  Eigen::Vector3f closest_pose = this->keyframes[closest_idx].first.first;
-  Eigen::Quaternionf closest_pose_r = this->keyframes[closest_idx].first.second;
-
-  // calculate distance between current pose and closest pose from above
-  float dd = sqrt( pow(this->pose[0] - closest_pose[0], 2) + pow(this->pose[1] - closest_pose[1], 2) + pow(this->pose[2] - closest_pose[2], 2) );
-
-  // calculate difference in orientation
-  Eigen::Quaternionf dq = this->rotq * (closest_pose_r.inverse());
-
-  float theta_rad = 2. * atan2(sqrt( pow(dq.x(), 2) + pow(dq.y(), 2) + pow(dq.z(), 2) ), dq.w());
-  float theta_deg = theta_rad * (180.0/M_PI);
-
-  // update keyframe
-  bool newKeyframe = false;
-
-  if (abs(dd) > this->keyframe_thresh_dist_ || abs(theta_deg) > this->keyframe_thresh_rot_) {
-    newKeyframe = true;
-  }
-  if (abs(dd) <= this->keyframe_thresh_dist_) {
-    newKeyframe = false;
-  }
-  if (abs(dd) <= this->keyframe_thresh_dist_ && abs(theta_deg) > this->keyframe_thresh_rot_ && num_nearby <= 1) {
-    newKeyframe = true;
-  }
-
-  if (newKeyframe) {
-
+  if (dd > this->keyframe_thresh_dist_ || d_theta > this->keyframe_thresh_rot_){
     ++this->num_keyframes;
-
-    // voxelization for submap
     if (this->vf_submap_use_) {
       this->vf_submap.setInputCloud(this->current_scan_t);
       this->vf_submap.filter(*this->current_scan_t);
     }
-
-    // update keyframe vector
     this->keyframes.push_back(std::make_pair(std::make_pair(this->pose, this->rotq), this->current_scan_t));
-
-    // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be overwritten by setInputSources())
     *this->keyframes_cloud += *this->current_scan_t;
     *this->keyframe_cloud = *this->current_scan_t;
+
+    PointType pose_point;
+    pose_point.x = this->pose[0];
+    pose_point.y = this->pose[1];
+    pose_point.z = this->pose[2];
+    this->keyframe_poses_cloud_->push_back(pose_point);
 
     this->gicp_s2s.setInputSource(this->keyframe_cloud);
     this->gicp_s2s.calculateSourceCovariances();
     this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
 
-    this->publish_keyframe_thread = std::thread( &dlo::OdomNode::publishKeyframe, this );
+    this->publish_keyframe_thread = std::thread(&dlo::OdomNode::publishKeyframe, this );
     this->publish_keyframe_thread.detach();
 
+    return true;
   }
+  return false;
+}
+
+void dlo::OdomNode::checkForLoopClosure(int current_keyframe_id) {
+  if (this->keyframe_poses_cloud_->points.size() < ) {
+    return;
+  }
+
+  this->kdtree_poses_ = std::make_unique<NanoKDTree>(
+    3, 
+    PointCloudAdapter(this->keyframe_poses_cloud_),
+    nanoflann::KDTreeSingleIndexAdaptorParams(10)
+  );
+
 
 }
 

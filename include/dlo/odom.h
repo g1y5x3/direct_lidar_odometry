@@ -80,11 +80,12 @@ private:
   void computeSpaciousness();
 
   void transformCurrentScan();
-  void updateKeyframes();
+  bool updateKeyframes();
   void computeConvexHull();
   void computeConcaveHull();
   void pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames);
   void getSubmapKeyframes();
+  void checkForLoopClosure(int current_keyframe_id);
 
   void debug();
 
@@ -223,6 +224,15 @@ private:
   clock_t lastCPU, lastSysCPU, lastUserCPU;
   int numProcessors;
 
+  // Nanoflann KD-Tree for pose searching in loop closure
+  using NanoKDTree = nanoflann::KDTreeSingleIndexAdaptor<
+      nanoflann::L2_Simple_Adaptor<float, PointCloudAdapter>,
+      PointCloudAdapter,
+      3 /* dim */
+  >;
+  std::unique_ptr<NanoKDTree> kdtree_poses_;
+  pcl::PointCloud<PointType>::Ptr keyframe_poses_cloud_;
+
   // Parameters
   std::string version_;
 
@@ -272,5 +282,9 @@ private:
   double gicps2m_euclidean_fitness_ep_;
   int gicps2m_ransac_iter_;
   double gicps2m_ransac_inlier_thresh_;
+
+  // Loop Closure Parameters
+  bool loop_closure_enabled_;
+  int loop_closure_min_id_diff_;
 
 };
