@@ -11,10 +11,9 @@
 
 #include "dlo/utils.h"
 
-#include <queue>
-
 #include "rclcpp/qos.hpp"
 
+#include <queue>
 
 /**
  * Constructor
@@ -36,7 +35,6 @@ dlo::OdomNode::OdomNode() : Node("dlo_odom_node") {
   this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("imu", 1, std::bind(&dlo::OdomNode::imuCB, this, std::placeholders::_1));
 
   this->odom_pub = this->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
-  // this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
   this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("submap", 1);
   this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("pose", 1);
   this->kf_pub = this->create_publisher<nav_msgs::msg::Odometry>("kfs", 1);

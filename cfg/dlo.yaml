@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
       # version
-      dlo/version: 1.4.3
+      dlo/version: 1.5.0
 
       # frames
       dlo/odomNode/odom_frame: "odom"
@@ -12,7 +12,7 @@
 
       # the maximum distance or rotation for generating another key frame
       dlo/odomNode/keyframe/threshD: 1.0
-      dlo/odomNode/keyframe/threshR: 45.0
+      dlo/odomNode/keyframe/threshR: 30.0
 
       # submap
       dlo/odomNode/submap/keyframe/knn: 20
@@ -20,7 +20,7 @@
       dlo/odomNode/submap/keyframe/kcc: 20
 
       # initial position
-      dlo/odomNode/initialPose/use: true   #false
+      dlo/odomNode/initialPose/use: true
 
       dlo/odomNode/initialPose/position/x: 0.0
       dlo/odomNode/initialPose/position/y: 0.0
@@ -42,7 +42,7 @@
 
       dlo/adaptiveParams: true
 
-      dlo/imu: false
+      dlo/imu: true
       dlo/odomNode/imu/calibTime: 3
       dlo/odomNode/imu/bufferSize: 2000
 
