@@ -15,9 +15,9 @@
       dlo/odomNode/keyframe/threshR: 45.0
 
       # submap
-      dlo/odomNode/submap/keyframe/knn: 10
-      dlo/odomNode/submap/keyframe/kcv: 10
-      dlo/odomNode/submap/keyframe/kcc: 10
+      dlo/odomNode/submap/keyframe/knn: 20
+      dlo/odomNode/submap/keyframe/kcv: 20
+      dlo/odomNode/submap/keyframe/kcc: 20
 
       # initial position
       dlo/odomNode/initialPose/use: true   #false
@@ -50,7 +50,7 @@
       dlo/odomNode/gicp/minNumPoints: 10
 
       dlo/odomNode/gicp/s2s/kCorrespondences: 10
-      dlo/odomNode/gicp/s2s/maxCorrespondenceDistance: 1.0
+      dlo/odomNode/gicp/s2s/maxCorrespondenceDistance: 0.5
       dlo/odomNode/gicp/s2s/maxIterations: 32
       dlo/odomNode/gicp/s2s/transformationEpsilon: 0.01
       dlo/odomNode/gicp/s2s/euclideanFitnessEpsilon: 0.01
