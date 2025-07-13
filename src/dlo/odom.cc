@@ -7,12 +7,9 @@
  *
  ***********************************************************/
 
-#include "dlo/odom.h"
-
 #include "dlo/utils.h"
-
+#include "dlo/odom.h"
 #include "rclcpp/qos.hpp"
-
 #include <queue>
 
 /**
@@ -297,7 +294,6 @@ void dlo::OdomNode::stop() {
     this->debug_thread.join();
   }
 
-  // ros::shutdown();
 }
 
 
@@ -673,12 +669,6 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
 
   // Publish the submap for localization node
   this->publishSubmap();
-
-  // sensor_msgs::msg::PointCloud2 pc_submap;
-  // pcl::toROSMsg(*this->submap_cloud, pc_submap);
-  // pc_submap.header.stamp = this->scan_stamp;
-  // pc_submap.header.frame_id = this->odom_frame;
-  // this->submap_pub->publish(pc_submap);
 
   // Update trajectory
   this->trajectory.push_back( std::make_pair(this->pose, this->rotq) );
