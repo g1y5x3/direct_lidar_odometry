@@ -49,18 +49,18 @@
       # ICP parameters
       dlo/odomNode/gicp/minNumPoints: 10
 
-      dlo/odomNode/gicp/s2s/kCorrespondences: 10
-      dlo/odomNode/gicp/s2s/maxCorrespondenceDistance: 0.2
+      dlo/odomNode/gicp/s2s/kCorrespondences: 80
+      dlo/odomNode/gicp/s2s/maxCorrespondenceDistance: 0.05
       dlo/odomNode/gicp/s2s/maxIterations: 32
-      dlo/odomNode/gicp/s2s/transformationEpsilon: 0.01
+      dlo/odomNode/gicp/s2s/transformationEpsilon: 0.005
       dlo/odomNode/gicp/s2s/euclideanFitnessEpsilon: 0.01
       dlo/odomNode/gicp/s2s/ransac/iterations: 5
       dlo/odomNode/gicp/s2s/ransac/outlierRejectionThresh: 0.2
 
-      dlo/odomNode/gicp/s2m/kCorrespondences: 10
-      dlo/odomNode/gicp/s2m/maxCorrespondenceDistance: 0.2
+      dlo/odomNode/gicp/s2m/kCorrespondences: 80
+      dlo/odomNode/gicp/s2m/maxCorrespondenceDistance: 0.05
       dlo/odomNode/gicp/s2m/maxIterations: 32
-      dlo/odomNode/gicp/s2m/transformationEpsilon: 0.01
+      dlo/odomNode/gicp/s2m/transformationEpsilon: 0.005
       dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon: 0.01
       dlo/odomNode/gicp/s2m/ransac/iterations: 5
       dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh: 0.2
