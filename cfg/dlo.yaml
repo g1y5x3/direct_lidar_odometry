@@ -15,9 +15,9 @@
       dlo/odomNode/keyframe/threshR: 45.0
 
       # submap
-      dlo/odomNode/submap/keyframe/knn: 15
-      dlo/odomNode/submap/keyframe/kcv: 15
-      dlo/odomNode/submap/keyframe/kcc: 15
+      dlo/odomNode/submap/keyframe/knn: 10
+      dlo/odomNode/submap/keyframe/kcv: 10
+      dlo/odomNode/submap/keyframe/kcc: 10
 
       # initial position
       dlo/odomNode/initialPose/use: true
