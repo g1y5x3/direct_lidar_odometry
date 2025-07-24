@@ -32,11 +32,11 @@ dlo::OdomNode::OdomNode() : Node("dlo_odom_node") {
   this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>("imu", 1, std::bind(&dlo::OdomNode::imuCB, this, std::placeholders::_1));
 
   this->odom_pub = this->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
-  // this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("submap", 1);
-  this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("pose", 1);
   this->kf_pub = this->create_publisher<nav_msgs::msg::Odometry>("kfs", 1);
   this->keyframe_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("keyframe", 1);
   this->br = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
+  // enable it for debug only
+  // this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("submap", 1);
 
   this->odom.pose.pose.position.x = 0.;
   this->odom.pose.pose.position.y = 0.;
@@ -340,20 +340,6 @@ void dlo::OdomNode::publishPose() {
   this->odom.header.frame_id = this->odom_frame;
   this->odom.child_frame_id = this->child_frame;
   this->odom_pub->publish(this->odom);
-
-  this->pose_ros.header.stamp = this->scan_stamp;
-  this->pose_ros.header.frame_id = this->odom_frame;
-
-  this->pose_ros.pose.position.x = this->pose[0];
-  this->pose_ros.pose.position.y = this->pose[1];
-  this->pose_ros.pose.position.z = this->pose[2];
-
-  this->pose_ros.pose.orientation.w = this->rotq.w();
-  this->pose_ros.pose.orientation.x = this->rotq.x();
-  this->pose_ros.pose.orientation.y = this->rotq.y();
-  this->pose_ros.pose.orientation.z = this->rotq.z();
-
-  this->pose_pub->publish(this->pose_ros);
 }
 
 

@@ -12,12 +12,12 @@
 
       # the maximum distance or rotation for generating another key frame
       dlo/odomNode/keyframe/threshD: 1.0
-      dlo/odomNode/keyframe/threshR: 30.0
+      dlo/odomNode/keyframe/threshR: 45.0
 
       # submap
-      dlo/odomNode/submap/keyframe/knn: 20
-      dlo/odomNode/submap/keyframe/kcv: 20
-      dlo/odomNode/submap/keyframe/kcc: 20
+      dlo/odomNode/submap/keyframe/knn: 15
+      dlo/odomNode/submap/keyframe/kcv: 15
+      dlo/odomNode/submap/keyframe/kcc: 15
 
       # initial position
       dlo/odomNode/initialPose/use: true
@@ -36,7 +36,7 @@
 
       # Voxel filters
       dlo/odomNode/preprocessing/voxelFilter/scan/use: true
-      dlo/odomNode/preprocessing/voxelFilter/scan/res: 0.05
+      dlo/odomNode/preprocessing/voxelFilter/scan/res: 0.1
       dlo/odomNode/preprocessing/voxelFilter/submap/use: true
       dlo/odomNode/preprocessing/voxelFilter/submap/res: 0.1
 

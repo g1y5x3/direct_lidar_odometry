@@ -10,9 +10,7 @@
 cmake_minimum_required(VERSION 3.12.4)
 project(direct_lidar_odometry)
 
-
-
-find_package( PCL REQUIRED )
+find_package(PCL REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)

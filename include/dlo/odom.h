@@ -50,8 +50,6 @@ private:
   // void abortTimerCB(const ros::TimerEvent& e);
   void icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& pc);
   void imuCB(const sensor_msgs::msg::Imu::SharedPtr imu);
-  // bool saveTrajectory(direct_lidar_odometry::save_traj::Request& req,
-  //                     direct_lidar_odometry::save_traj::Response& res);
 
   void getParams();
 
@@ -155,8 +153,6 @@ private:
 
   nav_msgs::msg::Odometry odom;
   nav_msgs::msg::Odometry kf;
-
-  geometry_msgs::msg::PoseStamped pose_ros;
 
   Eigen::Matrix4f T;
   Eigen::Matrix4f T_s2s, T_s2s_prev;
