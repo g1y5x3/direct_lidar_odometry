@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-      dlo/odomNode/odom_frame: "odom"   #odom
+      dlo/odomNode/odom_frame: "odom_lidar"   #odom
       dlo/mapNode/publishFullMap: true
       dlo/mapNode/publishFreq: 1.0
       dlo/mapNode/leafSize: 0.1

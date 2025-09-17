@@ -8,7 +8,6 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     dlo_pkg = FindPackageShare('direct_lidar_odometry')
-    spot_nav_pkg = FindPackageShare('spot_navigation')
 
     rviz_cfg = LaunchConfiguration('rviz', default='false')
     declare_rviz_arg = DeclareLaunchArgument(
@@ -70,7 +69,7 @@ def generate_launch_description():
     	]
     )
 
-    rviz_config_path = PathJoinSubstitution([spot_nav_pkg, 'config', 'dlo_mapping.rviz'])
+    rviz_config_path = PathJoinSubstitution([dlo_pkg, 'cfg', 'dlo_mapping.rviz'])
     rviz_node = Node(
     	name = 'dlo_rviz',
     	package = 'rviz2',

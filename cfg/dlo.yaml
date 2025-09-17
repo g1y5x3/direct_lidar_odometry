@@ -4,8 +4,8 @@
       dlo/version: 1.5.0
 
       # frames
-      dlo/odomNode/odom_frame: "odom"
-      dlo/odomNode/child_frame: "base_link"
+      dlo/odomNode/odom_frame: "odom_lidar"
+      dlo/odomNode/child_frame: "velodyne"
 
       # gravity alignment
       dlo/gravityAlign: false
