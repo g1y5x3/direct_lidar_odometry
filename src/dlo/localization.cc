@@ -1,10 +1,12 @@
 #include "dlo/localization.h"
+#include <pcl/filters/voxel_grid.h>
 
 dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
 
   RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
 
   this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
+  this->declare_parameter<double>("dlo/localizationNode/map_leaf_size", 0.2);
 
   // Parameters declaration
   this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", false);
@@ -46,7 +48,7 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   // this->initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
   //   "initialpose", 1, std::bind(&dlo::LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
 
-  this->tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
+  this->tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
 
   // load and publish the global map
   this->loadGlobalMap();
@@ -82,6 +84,7 @@ void dlo::LocalizationNode::loadGlobalMap() {
   rclcpp::QoS qos(rclcpp::KeepLast(1));
   qos.transient_local();
   this->map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map", qos);
+  this->map_filtered_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map_filtered", qos);
 
   // load the point cloud map
   std::string map_path;
@@ -95,7 +98,7 @@ void dlo::LocalizationNode::loadGlobalMap() {
   }
   RCLCPP_INFO(this->get_logger(), "Global map loaded with %zu points", this->global_map_->points.size());
 
-  // publish the map
+  // publish the full resolution map
   sensor_msgs::msg::PointCloud2 map_msg;
   pcl::toROSMsg(*this->global_map_, map_msg);
   map_msg.header.frame_id = "map";
@@ -103,6 +106,24 @@ void dlo::LocalizationNode::loadGlobalMap() {
   this->map_pub_->publish(map_msg);
   RCLCPP_INFO(this->get_logger(), "Global map published");
 
+  // downsample and publish the filtered map
+  double map_leaf_size;
+  this->get_parameter("dlo/localizationNode/map_leaf_size", map_leaf_size);
+
+  if (map_leaf_size > 0.0) {
+    pcl::PointCloud<PointType>::Ptr map_filtered = std::make_shared<pcl::PointCloud<PointType>>();
+    pcl::VoxelGrid<PointType> voxel_grid;
+    voxel_grid.setLeafSize(map_leaf_size, map_leaf_size, map_leaf_size);
+    voxel_grid.setInputCloud(this->global_map_);
+    voxel_grid.filter(*map_filtered);
+    
+    sensor_msgs::msg::PointCloud2 filtered_map_msg;
+    pcl::toROSMsg(*map_filtered, filtered_map_msg);
+    filtered_map_msg.header.frame_id = "map";
+    filtered_map_msg.header.stamp = this->now();
+    this->map_filtered_pub_->publish(filtered_map_msg);
+    RCLCPP_INFO(this->get_logger(), "Global map filtered and published with %zu points", map_filtered->points.size());
+  }
 }
 
 void dlo::LocalizationNode::setupGICP() {
