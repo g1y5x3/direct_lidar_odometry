@@ -4,6 +4,8 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
 
   RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
 
+  this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
+
   // Parameters declaration
   this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", false);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
@@ -13,8 +15,6 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   this->declare_parameter<double>("dlo/localizationNode/initial_orientation/x", 0.0);
   this->declare_parameter<double>("dlo/localizationNode/initial_orientation/y", 0.0);
   this->declare_parameter<double>("dlo/localizationNode/initial_orientation/z", 0.0);
-
-  this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
 
   this->declare_parameter<int>("dlo/odomNode/gicp/s2m/kCorrespondences", 20);
   this->declare_parameter<double>("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", 0.5);
@@ -37,23 +37,22 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
     this->is_initialized_ = true;
   }
 
+  this->pc_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+    "pointcloud", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
+
+  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    "odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
+
+  // this->initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+  //   "initialpose", 1, std::bind(&dlo::LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
+
+  this->tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
+
   // load and publish the global map
   this->loadGlobalMap();
 
   // initialize the GICP
   this->setupGICP();
-
-  this->pc_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "scan", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
-
-  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-    "odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
-
-  this->initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-    "initialpose", 1, std::bind(&dlo::LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
-
-  this->tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
-
 }
 
 // destructor
@@ -141,7 +140,7 @@ void dlo::LocalizationNode::publishTransform(const rclcpp::Time& stamp) {
   geometry_msgs::msg::TransformStamped transform_msg;
   transform_msg.header.stamp = stamp;
   transform_msg.header.frame_id = "map";
-  transform_msg.child_frame_id = "odom";
+  transform_msg.child_frame_id = "odom_lidar";
 
   Eigen::Matrix4f T_map_odom = this->T_map_odom_;
   transform_msg.transform.translation.x = T_map_odom(0, 3);
@@ -233,7 +232,7 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
   // Publish the transformation
   this->publishTransform(scan_stamp);
 
-  this->debug();
+  // this->debug();
 }
 
 // Debug method to print map load status and node info
