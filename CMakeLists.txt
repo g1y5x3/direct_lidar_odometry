@@ -21,6 +21,7 @@ find_package(nav_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
+find_package(tf2_eigen REQUIRED)
 
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_STANDARD 14)
@@ -75,7 +76,7 @@ ament_target_dependencies(dlo_map_node "tf2_ros" "pcl_ros" "pcl_conversions" "rc
 # Localization Node
 add_executable(dlo_localization_node src/dlo/localization_node.cc src/dlo/localization.cc)
 target_link_libraries(dlo_localization_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
-ament_target_dependencies(dlo_localization_node "tf2_ros" "pcl_ros" "nav_msgs" "pcl_conversions" "rclcpp" "sensor_msgs" "geometry_msgs")
+ament_target_dependencies(dlo_localization_node "tf2_ros" "pcl_ros" "nav_msgs" "pcl_conversions" "rclcpp" "sensor_msgs" "geometry_msgs" "Eigen3" "tf2_eigen")
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)

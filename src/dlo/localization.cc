@@ -39,22 +39,34 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
     this->is_initialized_ = true;
   }
 
+  rclcpp::QoS qos(rclcpp::KeepLast(1));
+  qos.transient_local();
+  this->map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map", qos);
+  this->map_filtered_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map_filtered", qos);
+
   this->pc_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
     "pointcloud", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
 
   this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
     "odom", 1, std::bind(&dlo::LocalizationNode::odomCallback, this, std::placeholders::_1));
 
-  // this->initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-  //   "initialpose", 1, std::bind(&dlo::LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
+  this->initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+    "initialpose", 1, std::bind(&dlo::LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
 
   this->tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
+  this->tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+  this->tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*this->tf_buffer_);
 
   // load and publish the global map
   this->loadGlobalMap();
 
   // initialize the GICP
   this->setupGICP();
+
+  this->map_pub_event_ = this->create_wall_timer(
+    std::chrono::milliseconds(200),
+    std::bind(&dlo::LocalizationNode::map_publish_callback, this)
+  );
 }
 
 // destructor
@@ -80,13 +92,6 @@ void dlo::LocalizationNode::getinitParams() {
 }
 
 void dlo::LocalizationNode::loadGlobalMap() {
-  // initialization
-  rclcpp::QoS qos(rclcpp::KeepLast(1));
-  qos.transient_local();
-  this->map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map", qos);
-  this->map_filtered_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map_filtered", qos);
-
-  // load the point cloud map
   std::string map_path;
   this->get_parameter("dlo/localizationNode/map_path", map_path);
   this->global_map_ = std::make_shared<pcl::PointCloud<PointType>>();
@@ -97,14 +102,31 @@ void dlo::LocalizationNode::loadGlobalMap() {
     return;
   }
   RCLCPP_INFO(this->get_logger(), "Global map loaded with %zu points", this->global_map_->points.size());
+}
 
+void dlo::LocalizationNode::map_publish_callback() {
+  try
+  {
+    Eigen::Matrix4f T = tf2::transformToEigen(tf_buffer_->lookupTransform("base_link", "map",tf2::TimePointZero)).matrix().cast<float>();
+    pcl::PointCloud<PointType>::Ptr cloud_bl = std::make_shared<pcl::PointCloud<PointType>>();
+    pcl::transformPointCloud(*this->global_map_, *cloud_bl, T);
+    
+    for (std::size_t i = 0; i < cloud_bl->points.size(); ++i) {
+      // global_map_->points[i].intensity = std::abs(cloud_bl->points[i].z);
+      global_map_->points[i].intensity = cloud_bl->points[i].z;
+    }
+  }
+  catch (const tf2::TransformException & ex)
+  {
+    RCLCPP_WARN(get_logger(), "Could not transform map to base_link: %s", ex.what());
+  }
+  
   // publish the full resolution map
   sensor_msgs::msg::PointCloud2 map_msg;
   pcl::toROSMsg(*this->global_map_, map_msg);
   map_msg.header.frame_id = "map";
   map_msg.header.stamp = this->now();
   this->map_pub_->publish(map_msg);
-  RCLCPP_INFO(this->get_logger(), "Global map published");
 
   // downsample and publish the filtered map
   double map_leaf_size;
@@ -122,7 +144,6 @@ void dlo::LocalizationNode::loadGlobalMap() {
     filtered_map_msg.header.frame_id = "map";
     filtered_map_msg.header.stamp = this->now();
     this->map_filtered_pub_->publish(filtered_map_msg);
-    RCLCPP_INFO(this->get_logger(), "Global map filtered and published with %zu points", map_filtered->points.size());
   }
 }
 
@@ -221,7 +242,7 @@ void dlo::LocalizationNode::initialPoseCallback(const geometry_msgs::msg::PoseWi
               rotation.w(), rotation.x(), rotation.y(), rotation.z());
 }
 
-// Utilize DLO's submap point cloud to localize the robot in the global map to avoid drifting
+// Utilize DLO's keyframe point cloud to help localize the robot in the global map to avoid drifting
 void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg) {
   rclcpp::Time scan_stamp = pc_msg->header.stamp;
 

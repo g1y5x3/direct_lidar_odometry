@@ -4,13 +4,18 @@
 // PCL
 #include <pcl/io/pcd_io.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl/common/transforms.h>
 
 // ROS Messages and TF2
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 #include <tf2_ros/static_transform_broadcaster.h>
+// #include <tf2_sensors_msgs/tf2_sensor_msgs.h>
+#include <tf2_eigen/tf2_eigen.hpp>
 
 // Nano GCIP
 #include <nano_gicp/nano_gicp.hpp>
@@ -36,6 +41,7 @@ private:
   void odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_msg);
   void pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pc_msg);
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr pose_msg);
+  void map_publish_callback();
 
   // ROS Members
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
@@ -43,7 +49,10 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pc_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
+  rclcpp::TimerBase::SharedPtr map_pub_event_;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
   // GICP and PCL Members
   nano_gicp::NanoGICP<PointType, PointType> gicp_;

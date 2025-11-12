@@ -35,8 +35,6 @@ dlo::OdomNode::OdomNode() : Node("dlo_odom_node") {
   this->kf_pub = this->create_publisher<nav_msgs::msg::Odometry>("kfs", 1);
   this->keyframe_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("keyframe", 1);
   this->br = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
-  // enable it for debug only
-  // this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("submap", 1);
 
   this->odom.pose.pose.position.x = 0.;
   this->odom.pose.pose.position.y = 0.;
@@ -403,15 +401,6 @@ void dlo::OdomNode::publishKeyframe() {
 
 }
 
-void dlo::OdomNode::publishSubmap() {
-  // Publish submap
-  sensor_msgs::msg::PointCloud2 pc_submap;
-  pcl::toROSMsg(*this->submap_cloud, pc_submap);
-  pc_submap.header.stamp = this->scan_stamp;
-  pc_submap.header.frame_id = this->odom_frame;
-  this->submap_pub->publish(pc_submap);
-}
-
 /**
  * Preprocessing
  **/
@@ -653,9 +642,6 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
   // Update current keyframe poses and map
   this->updateKeyframes();
 
-  // Publish the submap for localization node
-  // this->publishSubmap();
-
   // Update trajectory
   this->trajectory.push_back( std::make_pair(this->pose, this->rotq) );
 
@@ -670,8 +656,8 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& p
   this->publish_thread.detach();
 
   // Debug statements and publish custom DLO message
-  this->debug_thread = std::thread( &dlo::OdomNode::debug, this );
-  this->debug_thread.detach();
+  // this->debug_thread = std::thread( &dlo::OdomNode::debug, this );
+  // this->debug_thread.detach();
 
 }
 
