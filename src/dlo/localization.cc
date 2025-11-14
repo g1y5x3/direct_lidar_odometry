@@ -111,9 +111,14 @@ void dlo::LocalizationNode::map_publish_callback() {
     pcl::PointCloud<PointType>::Ptr cloud_bl = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::transformPointCloud(*this->global_map_, *cloud_bl, T);
     
+    const float nominal_ground_z = -0.5f;
+    const float max_traversable_deviation = 0.3f;
+
     for (std::size_t i = 0; i < cloud_bl->points.size(); ++i) {
-      // global_map_->points[i].intensity = std::abs(cloud_bl->points[i].z);
-      global_map_->points[i].intensity = cloud_bl->points[i].z;
+      float z = cloud_bl->points[i].z;
+      float deviation = std::abs(z - nominal_ground_z);
+      float intensity = std::min(deviation, max_traversable_deviation) / max_traversable_deviation;
+      global_map_->points[i].intensity = intensity;
     }
   }
   catch (const tf2::TransformException & ex)
