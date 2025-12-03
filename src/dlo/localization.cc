@@ -1,11 +1,13 @@
 #include "dlo/localization.h"
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/crop_box.h>
 
 dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
 
   RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
 
   this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
+  this->declare_parameter<double>("dlo/localizationNode/submap_size", 50.0);
   this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", false);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
@@ -116,11 +118,6 @@ void dlo::LocalizationNode::setupGICP() {
   pcl::Registration<PointType, PointType>::KdTreeReciprocalPtr temp;
   this->gicp_.setSearchMethodSource(temp, true);
   this->gicp_.setSearchMethodTarget(temp, true);
-
-  this->gicp_.setInputTarget(this->global_map_);
-  this->gicp_.calculateTargetCovariances();
-
-  RCLCPP_INFO(this->get_logger(), "GICP initialization completed!");
 }
 
 void dlo::LocalizationNode::publishTransform(const rclcpp::Time& stamp) {
@@ -200,6 +197,28 @@ void dlo::LocalizationNode::pointcloudCallback(const sensor_msgs::msg::PointClou
   std::unique_lock<std::mutex> lock(this->icp_mutex_);
   Eigen::Matrix4f T_map_odom_last = this->T_map_odom_;
   lock.unlock();
+
+  // Extract Local Map from Global Map
+  pcl::PointCloud<PointType>::Ptr local_map(new pcl::PointCloud<PointType>);
+  double submap_size = this->get_parameter("dlo/localizationNode/submap_size").as_double();
+
+  pcl::CropBox<PointType> crop_box_filter;
+  crop_box_filter.setInputCloud(this->global_map_);
+  Eigen::Vector4f min_pt, max_pt;
+  min_pt << -submap_size/2.0, -submap_size/2.0, -5.0, 1.0;
+  max_pt << submap_size/2.0, submap_size/2.0, 5.0, 1.0;
+
+  // Transform the bounding box to be centered at the robot's current pose
+  Eigen::Affine3f transform(T_map_odom_last);
+  crop_box_filter.setMin(min_pt);
+  crop_box_filter.setMax(max_pt);
+  crop_box_filter.setTransform(transform);
+
+  crop_box_filter.filter(*local_map);
+
+  // Set local map as GICP target
+  this->gicp_.setInputTarget(local_map);
+  this->gicp_.calculateTargetCovariances();
 
   // Set input source for GICP
   pcl::PointCloud<PointType>::Ptr current_scan = std::make_shared<pcl::PointCloud<PointType>>();
