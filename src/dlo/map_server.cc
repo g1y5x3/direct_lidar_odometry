@@ -6,12 +6,11 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
-#include <pcl/filters/crop_box.h> // Added include for CropBox
+#include <pcl/filters/crop_box.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
-// #include <pcl/segmentation/progressive_morphological_filter.h>
 #include <pcl/segmentation/approximate_progressive_morphological_filter.h>
 
 
@@ -115,6 +114,7 @@ void dlo::MapServer::setupMap()
   }
 }
 
+// TODO: use odometry to help gravity alignment in the future
 void dlo::MapServer::odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
   std::lock_guard<std::mutex> lock(this->odom_mutex_);
