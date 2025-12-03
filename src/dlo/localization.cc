@@ -6,9 +6,6 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
 
   this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
-  this->declare_parameter<double>("dlo/localizationNode/map_leaf_size", 0.2);
-
-  // Parameters declaration
   this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", false);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
   this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
@@ -39,11 +36,6 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
     this->is_initialized_ = true;
   }
 
-  rclcpp::QoS qos(rclcpp::KeepLast(1));
-  qos.transient_local();
-  this->map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map", qos);
-  this->map_filtered_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_map_filtered", qos);
-
   this->pc_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
     "pointcloud", 1, std::bind(&dlo::LocalizationNode::pointcloudCallback, this, std::placeholders::_1));
 
@@ -53,20 +45,15 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   this->initial_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
     "initialpose", 1, std::bind(&dlo::LocalizationNode::initialPoseCallback, this, std::placeholders::_1));
 
-  this->tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
   this->tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   this->tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*this->tf_buffer_);
+  this->tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
 
   // load and publish the global map
   this->loadGlobalMap();
 
   // initialize the GICP
   this->setupGICP();
-
-  this->map_pub_event_ = this->create_wall_timer(
-    std::chrono::milliseconds(200),
-    std::bind(&dlo::LocalizationNode::map_publish_callback, this)
-  );
 }
 
 // destructor
@@ -104,53 +91,6 @@ void dlo::LocalizationNode::loadGlobalMap() {
   RCLCPP_INFO(this->get_logger(), "Global map loaded with %zu points", this->global_map_->points.size());
 }
 
-void dlo::LocalizationNode::map_publish_callback() {
-  try
-  {
-    Eigen::Matrix4f T = tf2::transformToEigen(tf_buffer_->lookupTransform("base_link", "map",tf2::TimePointZero)).matrix().cast<float>();
-    pcl::PointCloud<PointType>::Ptr cloud_bl = std::make_shared<pcl::PointCloud<PointType>>();
-    pcl::transformPointCloud(*this->global_map_, *cloud_bl, T);
-    
-    const float nominal_ground_z = -0.5f;
-    const float max_traversable_deviation = 0.3f;
-
-    for (std::size_t i = 0; i < cloud_bl->points.size(); ++i) {
-      float z = cloud_bl->points[i].z;
-      float deviation = std::abs(z - nominal_ground_z);
-      float intensity = std::min(deviation, max_traversable_deviation) / max_traversable_deviation;
-      global_map_->points[i].intensity = intensity;
-    }
-  }
-  catch (const tf2::TransformException & ex)
-  {
-    RCLCPP_WARN(get_logger(), "Could not transform map to base_link: %s", ex.what());
-  }
-  
-  // publish the full resolution map
-  sensor_msgs::msg::PointCloud2 map_msg;
-  pcl::toROSMsg(*this->global_map_, map_msg);
-  map_msg.header.frame_id = "map";
-  map_msg.header.stamp = this->now();
-  this->map_pub_->publish(map_msg);
-
-  // downsample and publish the filtered map
-  double map_leaf_size;
-  this->get_parameter("dlo/localizationNode/map_leaf_size", map_leaf_size);
-
-  if (map_leaf_size > 0.0) {
-    pcl::PointCloud<PointType>::Ptr map_filtered = std::make_shared<pcl::PointCloud<PointType>>();
-    pcl::VoxelGrid<PointType> voxel_grid;
-    voxel_grid.setLeafSize(map_leaf_size, map_leaf_size, map_leaf_size);
-    voxel_grid.setInputCloud(this->global_map_);
-    voxel_grid.filter(*map_filtered);
-    
-    sensor_msgs::msg::PointCloud2 filtered_map_msg;
-    pcl::toROSMsg(*map_filtered, filtered_map_msg);
-    filtered_map_msg.header.frame_id = "map";
-    filtered_map_msg.header.stamp = this->now();
-    this->map_filtered_pub_->publish(filtered_map_msg);
-  }
-}
 
 void dlo::LocalizationNode::setupGICP() {
   int kCorrespondences, maxIterations, ransacIterations;
