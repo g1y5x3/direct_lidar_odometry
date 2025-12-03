@@ -4,6 +4,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/crop_box.h> // Added include for CropBox
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
@@ -124,7 +125,7 @@ void dlo::MapServer::lidarScanCallback(const sensor_msgs::msg::PointCloud2::Cons
   pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
   pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
   pcl::SACSegmentation<PointType> seg;
-  
+
   seg.setOptimizeCoefficients(true);
   seg.setModelType(pcl::SACMODEL_PLANE);
   seg.setMethodType(pcl::SAC_RANSAC);
@@ -155,14 +156,23 @@ void dlo::MapServer::lidarScanCallback(const sensor_msgs::msg::PointCloud2::Cons
   voxel_grid_filter.setLeafSize(0.05f, 0.05f, 0.05f);
   voxel_grid_filter.setInputCloud(obstacle_cloud_extracted);
   voxel_grid_filter.filter(*obstacle_cloud_filtered);
-  
-  if (obstacle_cloud_filtered->points.empty()) {
+
+  // Apply a distance threshold to remove points too close to the sensor
+  pcl::PointCloud<PointType>::Ptr obstacle_cloud_final(new pcl::PointCloud<PointType>);
+  pcl::CropBox<PointType> self_filter;
+  self_filter.setInputCloud(obstacle_cloud_filtered);
+  self_filter.setMin(Eigen::Vector4f(-0.5, -0.5, -0.5, 1.0)); // Define a small box around the sensor
+  self_filter.setMax(Eigen::Vector4f(0.5, 0.5, 0.5, 1.0));
+  self_filter.setNegative(true); // Remove points inside the box
+  self_filter.filter(*obstacle_cloud_final);
+
+  if (obstacle_cloud_final->points.empty()) {
     return;
   }
 
-  // Publish obstacle cloud
+  // Publish final obstacle cloud
   sensor_msgs::msg::PointCloud2 obstacle_msg;
-  pcl::toROSMsg(*obstacle_cloud_filtered, obstacle_msg);
+  pcl::toROSMsg(*obstacle_cloud_final, obstacle_msg);
   obstacle_msg.header = msg->header;
   this->obstacle_pub_->publish(obstacle_msg);
 }
