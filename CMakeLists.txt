@@ -22,6 +22,7 @@ find_package(pcl_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(tf2_eigen REQUIRED)
+find_package(tf2_sensor_msgs)
 
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_STANDARD 14)
@@ -81,7 +82,7 @@ ament_target_dependencies(dlo_localization_node "tf2_ros" "pcl_ros" "nav_msgs" "
 # Map Server Node
 add_executable(dlo_map_server_node src/dlo/map_server_node.cc src/dlo/map_server.cc)
 target_link_libraries(dlo_map_server_node ${PCL_LIBRARIES})
-ament_target_dependencies(dlo_map_server_node "rclcpp" "sensor_msgs" "pcl_ros" "pcl_conversions")
+ament_target_dependencies(dlo_map_server_node "rclcpp" "sensor_msgs" "pcl_ros" "pcl_conversions" "nav_msgs" "tf2_ros" "tf2_sensor_msgs")
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)

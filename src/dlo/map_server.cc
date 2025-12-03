@@ -1,13 +1,19 @@
 #include "dlo/map_server.h"
 
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+
 #include <pcl/io/pcd_io.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/crop_box.h> // Added include for CropBox
+#include <pcl/filters/passthrough.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
+// #include <pcl/segmentation/progressive_morphological_filter.h>
+#include <pcl/segmentation/approximate_progressive_morphological_filter.h>
+
 
 dlo::MapServer::MapServer() : Node("dlo_map_server_node")
 {
@@ -17,6 +23,10 @@ dlo::MapServer::MapServer() : Node("dlo_map_server_node")
   this->declare_parameter<std::string>("map_path", "global_map.pcd");
   this->declare_parameter<double>("map_leaf_size", 0.2);
   this->declare_parameter<double>("ransac_distance_threshold", 0.5);
+
+  // TF
+  this->tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+  this->tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*this->tf_buffer_);
 
   // Global Map Publisher
   this->global_map_ = std::make_shared<pcl::PointCloud<PointType>>();
@@ -28,6 +38,10 @@ dlo::MapServer::MapServer() : Node("dlo_map_server_node")
   rclcpp::QoS qos_lidar(1);
   this->obstacle_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("obstacle_cloud", qos_lidar);
   this->lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("pointcloud", qos_lidar, std::bind(&dlo::MapServer::lidarScanCallback, this, std::placeholders::_1));
+
+  // Odometry Subscriber
+  rclcpp::QoS qos_odom(1);
+  this->odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("odom", qos_odom, std::bind(&dlo::MapServer::odomCallback, this, std::placeholders::_1));
 }
 
 dlo::MapServer::~MapServer() {}
@@ -100,6 +114,15 @@ void dlo::MapServer::setupMap()
     RCLCPP_INFO(this->get_logger(), "Segmented ground plane with %zu points.", inliers->indices.size());
   }
 }
+
+void dlo::MapServer::odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(this->odom_mutex_);
+  this->odom_msg_ = *msg;
+  this->has_odom_ = true;
+}
+
+
 void dlo::MapServer::publishMapCallback()
 {
   // Publish
@@ -112,66 +135,81 @@ void dlo::MapServer::publishMapCallback()
 
 void dlo::MapServer::lidarScanCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
 {
-  // Convert ROS msg to PCL point cloud
-  pcl::PointCloud<PointType>::Ptr scan_raw(new pcl::PointCloud<PointType>);
-  pcl::fromROSMsg(*msg, *scan_raw);
+  if (!this->has_odom_) return;
 
-  if (scan_raw->points.empty()) {
+  nav_msgs::msg::Odometry odom_msg;
+  {
+    std::lock_guard<std::mutex> lock(this->odom_mutex_);
+    odom_msg = this->odom_msg_;
+  }
+  std::string target_frame = odom_msg.child_frame_id;
+
+  // Transform to base_link (Same as before)
+  sensor_msgs::msg::PointCloud2 msg_base;
+  try {
+    this->tf_buffer_->transform(*msg, msg_base, odom_msg.child_frame_id, tf2::durationFromSec(0.1));
+  } catch (const tf2::TransformException & ex) { 
     return;
   }
 
-  // Segment ground plane
-  pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-  pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-  pcl::SACSegmentation<PointType> seg;
+  pcl::PointCloud<PointType>::Ptr scan_base(new pcl::PointCloud<PointType>);
+  pcl::fromROSMsg(msg_base, *scan_base);
+  if (scan_base->points.empty()) return;
 
-  seg.setOptimizeCoefficients(true);
-  seg.setModelType(pcl::SACMODEL_PLANE);
-  seg.setMethodType(pcl::SAC_RANSAC);
-  seg.setDistanceThreshold(0.1); // Hardcoded value for live scans
-  seg.setInputCloud(scan_raw); // RANSAC now operates on the raw scan
-  seg.segment(*inliers, *coefficients);
+  // Range Filter
+  pcl::PointCloud<PointType>::Ptr scan_filtered(new pcl::PointCloud<PointType>);
+  pcl::PassThrough<PointType> pass;
+  pass.setInputCloud(scan_base);
+  pass.setFilterFieldName("x");
+  pass.setFilterLimits(-20.0, 20.0); // Limit range to save CPU
+  pass.filter(*scan_filtered);
 
+  // Uneven terrain handling with PMF
+  pcl::PointIndices::Ptr ground_inliers(new pcl::PointIndices);
+  pcl::ApproximateProgressiveMorphologicalFilter<PointType> pmf;
+  pmf.setInputCloud(scan_filtered);
+  // Max window size: How "big" the largest object is (in meters). 
+  pmf.setMaxWindowSize(10); 
+  // Slope: 1.0 means it accepts a 45-degree slope as ground.
+  pmf.setSlope(0.7f); 
+  // Initial Distance: Tolerance for "flatness" locally.
+  pmf.setInitialDistance(0.2f); 
+  // Max Distance: Max height difference to be considered ground vs obstacle
+  pmf.setMaxDistance(0.5f); 
+  pmf.extract(ground_inliers->indices);
+
+  // Extract Obstacles (Invert the ground indices)
   pcl::PointCloud<PointType>::Ptr obstacle_cloud_extracted(new pcl::PointCloud<PointType>);
-  if (inliers->indices.size() == 0)
-  {
-    // No plane found, assume all points are obstacles
-    RCLCPP_WARN(this->get_logger(), "Could not estimate a planar model for the lidar scan. All points treated as obstacles.");
-    obstacle_cloud_extracted = scan_raw; // All raw points are obstacles
-  }
-  else
-  {
-    // Extract non-ground (obstacle) points
-    pcl::ExtractIndices<PointType> extract;
-    extract.setInputCloud(scan_raw); // Extract from raw scan
-    extract.setIndices(inliers);
-    extract.setNegative(true); // True means extract points NOT in the indices
-    extract.filter(*obstacle_cloud_extracted);
-  }
+  pcl::ExtractIndices<PointType> extract;
+  extract.setInputCloud(scan_filtered);
+  extract.setIndices(ground_inliers);
+  extract.setNegative(true); // True = Remove ground, keep obstacles
+  extract.filter(*obstacle_cloud_extracted);
 
-  // Apply VoxelGrid filter to the extracted obstacle cloud
+  // Apply VoxelGrid filter
   pcl::PointCloud<PointType>::Ptr obstacle_cloud_filtered(new pcl::PointCloud<PointType>);
   pcl::VoxelGrid<PointType> voxel_grid_filter;
   voxel_grid_filter.setLeafSize(0.05f, 0.05f, 0.05f);
   voxel_grid_filter.setInputCloud(obstacle_cloud_extracted);
   voxel_grid_filter.filter(*obstacle_cloud_filtered);
 
-  // Apply a distance threshold to remove points too close to the sensor
+  // Apply CropBox (Self Filter)
+  // Box coordinates are now relative to the center of base_link
   pcl::PointCloud<PointType>::Ptr obstacle_cloud_final(new pcl::PointCloud<PointType>);
   pcl::CropBox<PointType> self_filter;
   self_filter.setInputCloud(obstacle_cloud_filtered);
-  self_filter.setMin(Eigen::Vector4f(-0.5, -0.5, -0.5, 1.0)); // Define a small box around the sensor
+  self_filter.setMin(Eigen::Vector4f(-0.5, -0.5, -0.5, 1.0));
   self_filter.setMax(Eigen::Vector4f(0.5, 0.5, 0.5, 1.0));
-  self_filter.setNegative(true); // Remove points inside the box
+  self_filter.setNegative(true);
   self_filter.filter(*obstacle_cloud_final);
 
-  if (obstacle_cloud_final->points.empty()) {
-    return;
-  }
+  if (obstacle_cloud_final->points.empty()) return;
 
   // Publish final obstacle cloud
   sensor_msgs::msg::PointCloud2 obstacle_msg;
   pcl::toROSMsg(*obstacle_cloud_final, obstacle_msg);
-  obstacle_msg.header = msg->header;
+  obstacle_msg.header.stamp = msg->header.stamp;
+  obstacle_msg.header.frame_id = target_frame;
+
   this->obstacle_pub_->publish(obstacle_msg);
 }
