@@ -22,9 +22,15 @@ public:
 private:
   void setupMap();
   void publishMapCallback();
+  void lidarScanCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
 
+  // Global Map
   rclcpp::TimerBase::SharedPtr map_pub_timer_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
   pcl::PointCloud<PointType>::Ptr global_map_;
+
+  // Obstacle Cloud
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr lidar_sub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_pub_;
 };
 } // namespace dlo
