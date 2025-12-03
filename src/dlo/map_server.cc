@@ -27,8 +27,7 @@ dlo::MapServer::MapServer() : Node("dlo_map_server_node")
   // Obstacle Cloud Publisher and Subscriber
   rclcpp::QoS qos_lidar(1);
   this->obstacle_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("obstacle_cloud", qos_lidar);
-  this->lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "pointcloud", qos_lidar, std::bind(&dlo::MapServer::lidarScanCallback, this, std::placeholders::_1));
+  this->lidar_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("pointcloud", qos_lidar, std::bind(&dlo::MapServer::lidarScanCallback, this, std::placeholders::_1));
 }
 
 dlo::MapServer::~MapServer() {}
