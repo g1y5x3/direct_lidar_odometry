@@ -1,32 +1,15 @@
 #include "dlo/localization.h"
-#include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/crop_box.h>
+#include <pcl/filters/voxel_grid.h>
 
 dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
 
   RCLCPP_INFO(this->get_logger(), "Initializing DLO Localization Node");
 
-  this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
-  this->declare_parameter<double>("dlo/localizationNode/submap_size", 50.0);
-  this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", false);
-  this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_position/z", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/w", 1.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/x", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/y", 0.0);
-  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/z", 0.0);
-
-  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/kCorrespondences", 20);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", 0.5);
-  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/maxIterations", 32);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/transformationEpsilon", 0.01);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", 0.01);
-  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/ransac/iterations", 5);
-  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", 1.0);
+  this->declareParameters();
 
   // read map -> odom initialization
-  this->getinitParams();
+  this->getInitParams();
   if (!this->initial_pose_use_) {
     RCLCPP_INFO(this->get_logger(), "Using initial pose from /initialpose topic");
     this->is_initialized_ = false;
@@ -51,9 +34,15 @@ dlo::LocalizationNode::LocalizationNode() : Node("dlo_localization_node") {
   this->tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*this->tf_buffer_);
   this->tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
 
-  // load and publish the global map
-  this->loadGlobalMap();
+  rclcpp::QoS qos_map(rclcpp::KeepLast(1));
+  qos_map.transient_local();
+  this->map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("global_cloud", qos_map);
 
+  // load and publish the global map
+  this->global_map_ = std::make_shared<pcl::PointCloud<PointType>>();
+  this->setupGlobalMap();
+
+  RCLCPP_INFO(this->get_logger(), "Initializing GICP ...");
   // initialize the GICP
   this->setupGICP();
 }
@@ -63,9 +52,39 @@ dlo::LocalizationNode::~LocalizationNode() {}
 
 void dlo::LocalizationNode::start() {
   RCLCPP_INFO(this->get_logger(), "Starting DLO Localization Node");
+  this->map_pub_timer_ = this->create_wall_timer(
+    std::chrono::milliseconds(200), // 5Hz
+    std::bind(&dlo::LocalizationNode::publishMapCallback, this)
+  );
+  RCLCPP_INFO(this->get_logger(), "Map server started. Publishing map at 5Hz.");
 }
 
-void dlo::LocalizationNode::getinitParams() {
+void dlo::LocalizationNode::declareParameters() {
+  this->declare_parameter<std::string>("dlo/localizationNode/map_path", "global_map.pcd");
+  // TODO: find out what is the most optimial map size
+  this->declare_parameter<double>("dlo/localizationNode/submap_size", 50.0);
+  this->declare_parameter<bool>("dlo/localizationNode/initial_pose_use", false);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/x", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/y", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_position/z", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/w", 1.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/x", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/y", 0.0);
+  this->declare_parameter<double>("dlo/localizationNode/initial_orientation/z", 0.0);
+
+  this->declare_parameter<double>("dlo/localizationNode/map_leaf_size", 0.2);
+  this->declare_parameter<double>("dlo/localizationNode/ransac_distance_threshold", 0.5);
+
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/kCorrespondences", 20);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", 0.5);
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/maxIterations", 32);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/transformationEpsilon", 0.01);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", 0.01);
+  this->declare_parameter<int>("dlo/odomNode/gicp/s2m/ransac/iterations", 5);
+  this->declare_parameter<double>("dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", 1.0);
+}
+
+void dlo::LocalizationNode::getInitParams() {
   this->get_parameter("dlo/localizationNode/initial_pose_use", this->initial_pose_use_);
 
   double px, py, pz, qx, qy, qz, qw;
@@ -80,24 +99,71 @@ void dlo::LocalizationNode::getinitParams() {
   this->initial_orientation_ = Eigen::Quaternionf(qw, qx, qy, qz);
 }
 
-void dlo::LocalizationNode::loadGlobalMap() {
+void dlo::LocalizationNode::setupGlobalMap() {
   std::string map_path;
   this->get_parameter("dlo/localizationNode/map_path", map_path);
-  this->global_map_ = std::make_shared<pcl::PointCloud<PointType>>();
+  pcl::PointCloud<PointType>::Ptr raw_map = std::make_shared<pcl::PointCloud<PointType>>();
 
-  if (pcl::io::loadPCDFile<PointType>(map_path, *this->global_map_) == -1) {
+  if (pcl::io::loadPCDFile<PointType>(map_path, *raw_map) == -1) {
     RCLCPP_ERROR(this->get_logger(), "Failed to load global map from %s", map_path.c_str());
     rclcpp::shutdown();
     return;
   }
-  RCLCPP_INFO(this->get_logger(), "Global map loaded with %zu points", this->global_map_->points.size());
+  RCLCPP_INFO(this->get_logger(), "Raw map loaded with %zu points from %s", raw_map->points.size(), map_path.c_str());
+
+  // Filter
+  RCLCPP_INFO(this->get_logger(), "Filtering global map ...");
+  double map_leaf_size = this->get_parameter("dlo/localizationNode/map_leaf_size").as_double();
+  if (map_leaf_size > 0.0) {
+    pcl::VoxelGrid<PointType> voxel_grid;
+    voxel_grid.setLeafSize(map_leaf_size, map_leaf_size, map_leaf_size);
+    voxel_grid.setInputCloud(raw_map);
+    voxel_grid.filter(*this->global_map_);
+    RCLCPP_INFO(this->get_logger(), "Filtered map to %zu points", this->global_map_->points.size());
+  } else {
+    this->global_map_ = raw_map;
+    RCLCPP_INFO(this->get_logger(), "No filtering applied to map.");
+  }
+
+  // Pre-process intensities using RANSAC ground segmentation
+  RCLCPP_INFO(this->get_logger(), "Pre-processing global map for ground segmentation ...");
+  pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+  pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+  pcl::SACSegmentation<PointType> seg;
+
+  seg.setOptimizeCoefficients(true);
+  seg.setModelType(pcl::SACMODEL_PLANE);
+  seg.setMethodType(pcl::SAC_RANSAC);
+  seg.setDistanceThreshold(this->get_parameter("dlo/localizationNode/ransac_distance_threshold").as_double());
+  seg.setInputCloud(this->global_map_);
+  seg.segment(*inliers, *coefficients);
+
+  if (inliers->indices.size() == 0)
+  {
+    RCLCPP_WARN(this->get_logger(), "Could not estimate a planar model for the given dataset. All points will be marked as non-ground.");
+    for (std::size_t i = 0; i < this->global_map_->points.size(); ++i) {
+      this->global_map_->points[i].intensity = 1.0; // Non-Ground
+    }
+  }
+  else
+  {
+    // Assume all points are non-ground initially
+    for (std::size_t i = 0; i < this->global_map_->points.size(); ++i) {
+      this->global_map_->points[i].intensity = 1.0; // Non-Ground
+    }
+
+    // Mark RANSAC inliers as ground
+    for (std::size_t i = 0; i < inliers->indices.size(); ++i) {
+      this->global_map_->points[inliers->indices[i]].intensity = 0.0; // Ground
+    }
+    RCLCPP_INFO(this->get_logger(), "Segmented ground plane with %zu points.", inliers->indices.size());
+  }
 }
 
 
 void dlo::LocalizationNode::setupGICP() {
   int kCorrespondences, maxIterations, ransacIterations;
   double maxCorrespondenceDistance, transformationEpsilon, euclideanFitnessEpsilon, ransacOutlierRejectionThresh;
-
   this->get_parameter("dlo/odomNode/gicp/s2m/kCorrespondences", kCorrespondences);
   this->get_parameter("dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", maxCorrespondenceDistance);
   this->get_parameter("dlo/odomNode/gicp/s2m/maxIterations", maxIterations);
@@ -118,6 +184,8 @@ void dlo::LocalizationNode::setupGICP() {
   pcl::Registration<PointType, PointType>::KdTreeReciprocalPtr temp;
   this->gicp_.setSearchMethodSource(temp, true);
   this->gicp_.setSearchMethodTarget(temp, true);
+
+  RCLCPP_INFO(this->get_logger(), "GICP initialized.");
 }
 
 void dlo::LocalizationNode::publishTransform(const rclcpp::Time& stamp) {
@@ -138,6 +206,16 @@ void dlo::LocalizationNode::publishTransform(const rclcpp::Time& stamp) {
   transform_msg.transform.rotation.z = q.z();
 
   this->tf_broadcaster_->sendTransform(transform_msg);
+}
+
+void dlo::LocalizationNode::publishMapCallback()
+{
+  // Publish
+  sensor_msgs::msg::PointCloud2 map_msg;
+  pcl::toROSMsg(*this->global_map_, map_msg);
+  map_msg.header.frame_id = "map";
+  map_msg.header.stamp = this->now();
+  this->map_pub_->publish(map_msg);
 }
 
 void dlo::LocalizationNode::odomCallback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_msg) {

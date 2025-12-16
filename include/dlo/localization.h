@@ -17,6 +17,11 @@
 // #include <tf2_sensors_msgs/tf2_sensor_msgs.h>
 #include <tf2_eigen/tf2_eigen.hpp>
 
+// PCL Segmentation
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+
 // Nano GCIP
 #include <nano_gicp/nano_gicp.hpp>
 
@@ -31,10 +36,12 @@ public:
   void start();
 
 private:
-  void getinitParams();
-  void loadGlobalMap();
+  void declareParameters();
+  void getInitParams();
+  void setupGlobalMap();
   void setupGICP();
   void publishTransform(const rclcpp::Time& stamp);
+  void publishMapCallback();
   void debug();
 
   // ROS Callback Functions
@@ -46,6 +53,8 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pc_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initial_pose_sub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
+  rclcpp::TimerBase::SharedPtr map_pub_timer_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
